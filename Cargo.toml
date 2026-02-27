@@ -1,0 +1,25 @@
+[package]
+name = "rust_embedded_wgpu"
+version = "0.1.0"
+edition = "2024"
+# authors = ["You <you@example.com>"]  # Optional: add under [package] if you want it in metadata
+
+[features]
+# Enable the DRM+wGPU surface path. Build on Linux and pass: --features wgpu_drm
+wgpu_drm = []
+# Optional: listen for ESC key via evdev
+esc_evdev = ["evdev"]
+kms_cpu_scanout = []
+
+[dependencies]
+anyhow = "1"
+tokio = { version = "1", features = ["rt", "macros", "signal", "time"] }
+# Keep wgpu generic; runtime selects backend. We'll set WGPU_BACKEND=vulkan when running.
+wgpu = "25"
+bytemuck = { version = "1", features = ["derive"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# DRM/KMS control (enumerate connectors/modes)
+drm = "0.14"
+# Optional keyboard via evdev (enable with --features esc_evdev)
+evdev = { version = "0.12", optional = true }

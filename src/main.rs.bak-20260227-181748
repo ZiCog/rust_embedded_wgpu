@@ -1,0 +1,506 @@
+use anyhow::Result;
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<()> {
+    #[cfg(all(target_os = "linux", feature = "wgpu_drm"))]
+    {
+        return linux::run().await;
+    }
+
+    #[cfg(not(all(target_os = "linux", feature = "wgpu_drm")))]
+    {
+        eprintln!(
+            "This scaffold targets Linux DRM/KMS with wgpu. Build on a Linux device with:\n  cargo run --release --features wgpu_drm\n(Optional ESC via evdev: add --features esc_evdev)"
+        );
+        Ok(())
+    }
+}
+
+#[cfg(all(target_os = "linux", feature = "wgpu_drm"))]
+mod linux {
+    use anyhow::{bail, Context, Result};
+    use std::{
+        fs::File,
+        os::fd::{AsFd, AsRawFd, BorrowedFd},
+        time::{Duration, Instant},
+    };
+
+    use drm::control::{self as ctrl, Device as ControlDevice, ModeTypeFlags};
+
+    pub(crate) struct Card(File);
+
+    impl Card {
+        fn as_borrowed_fd(&self) -> BorrowedFd<'_> { self.0.as_fd() }
+        fn raw_fd(&self) -> i32 { self.0.as_raw_fd() }
+    }
+
+    // Implement DRM device traits for our file-backed Card
+    impl drm::Device for Card {}
+    impl ctrl::Device for Card {}
+
+    impl AsFd for Card {
+        fn as_fd(&self) -> BorrowedFd<'_> { self.0.as_fd() }
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    pub(crate) struct DrmPick {
+        pub(crate) connector_id: u32,
+        pub(crate) width: u32,
+        pub(crate) height: u32,
+        pub(crate) refresh_millihz: u32,
+    }
+
+    fn open_card_and_pick() -> Result<(Card, DrmPick)> {
+        for i in 0..=9 {
+            let path = format!("/dev/dri/card{}", i);
+            let Ok(f) = File::options().read(true).write(true).open(&path) else { continue };
+            let card = Card(f);
+
+            let Ok(res) = card.resource_handles() else { continue };
+            for &conn in res.connectors().iter() {
+                let Ok(info) = card.get_connector(conn, false) else { continue };
+                if info.state() != ctrl::connector::State::Connected { continue; }
+                let modes = info.modes();
+                if modes.is_empty() { continue; }
+                let preferred = modes
+                    .iter()
+                    .find(|m| m.mode_type().contains(ModeTypeFlags::PREFERRED))
+                    .copied()
+                    .unwrap_or(modes[0]);
+
+                let (w, h) = preferred.size();
+                let vrefresh_hz = preferred.vrefresh();
+                let pick = DrmPick {
+                    connector_id: conn.into(),
+                    width: w as u32,
+                    height: h as u32,
+                    refresh_millihz: (vrefresh_hz as u32) * 1000,
+                };
+                return Ok((card, pick));
+            }
+            // If no connected connector on this card, try next card
+        }
+        bail!("No DRM card with a connected connector/mode found");
+    }
+
+    // Optional: spawn an ESC listener via evdev (requires feature "esc_evdev")
+    #[cfg(feature = "esc_evdev")]
+    fn spawn_esc_listener() -> tokio::sync::oneshot::Receiver<()> {
+        use evdev::{Device, Key};
+        use std::thread;
+        use tokio::sync::oneshot;
+
+        let (tx, rx) = oneshot::channel();
+        thread::spawn(move || {
+            let mut devices: Vec<Device> = evdev::enumerate()
+                .filter_map(|(p, _)| Device::open(p).ok())
+                .collect();
+
+            'outer: loop {
+                for dev in devices.iter_mut() {
+                    if let Ok(events) = dev.fetch_events() {
+                        for e in events {
+                            if let Some(code) = e.code() {
+                                if code == Key::ESC && e.value() == 1 {
+                                    let _ = tx.send(());
+                                    break 'outer;
+                                }
+                            }
+                        }
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        });
+        rx
+    }
+
+    pub async fn run() -> Result<()> {
+        // 1) DRM: scan cards and pick first connected connector/mode
+        let (card, pick) = open_card_and_pick().context("pick DRM card/connector/mode")?;
+
+        // 2) wgpu instance (Vulkan backend preferred)
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::VULKAN,
+            flags: wgpu::InstanceFlags::empty(),
+            ..Default::default()
+        });
+
+        // 3) Create a DRM surface (unsafe; requires valid params, and the FD must outlive the surface)
+        let surface = match unsafe {
+            use wgpu::SurfaceTargetUnsafe;
+            instance.create_surface_unsafe(SurfaceTargetUnsafe::Drm {
+                fd: card.raw_fd(),
+                plane: 0, // primary plane
+                connector_id: pick.connector_id,
+                width: pick.width,
+                height: pick.height,
+                refresh_rate: pick.refresh_millihz,
+            })
+        } {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("wgpu DRM surface create failed: {:?}", e);
+                #[cfg(feature = "kms_cpu_scanout")]
+                { return crate::cpu_scanout::run(&card, pick).await; }
+                #[allow(unreachable_code)]
+                return Err(anyhow::anyhow!("wgpu DRM surface create failed and kms_cpu_scanout not enabled"));
+            }
+        };
+
+        // 4) Request adapter/device bound to this surface
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
+            })
+            .await
+            .context("No suitable Vulkan adapter for DRM surface")?;
+
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor {
+                label: Some("device"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                ..Default::default()
+            })
+            .await?;
+
+        // 5) Configure surface
+        let caps = surface.get_capabilities(&adapter);
+        let format = caps
+            .formats
+            .iter()
+            .copied()
+            .find(|f| matches!(f, wgpu::TextureFormat::Bgra8UnormSrgb | wgpu::TextureFormat::Rgba8UnormSrgb))
+            .unwrap_or_else(|| caps.formats[0]);
+        let present_mode = caps
+            .present_modes
+            .iter()
+            .copied()
+            .find(|&m| m == wgpu::PresentMode::Fifo)
+            .unwrap_or(caps.present_modes[0]);
+        let alpha_mode = caps
+            .alpha_modes
+            .iter()
+            .copied()
+            .find(|&a| a == wgpu::CompositeAlphaMode::Opaque)
+            .unwrap_or(caps.alpha_modes[0]);
+
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format,
+            width: pick.width,
+            height: pick.height,
+            present_mode,
+            alpha_mode,
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+        surface.configure(&device, &config);
+
+        // 6) Pipeline: color-changing triangle with a time uniform
+        #[repr(C)]
+        #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+        struct TimeUniform { t: f32 }
+
+        let time_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("time_ubo"),
+            size: std::mem::size_of::<TimeUniform>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("bgl"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("bg"),
+            layout: &bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: time_buf.as_entire_binding(),
+            }],
+        });
+
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("pipeline_layout"),
+            bind_group_layouts: &[&bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("triangle_wgsl"),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(
+                r#"
+struct Uniforms { time: f32; };
+@group(0) @binding(0) var<uniform> U: Uniforms;
+
+struct VSOut {
+  @builtin(position) pos: vec4<f32>,
+  @location(0) color: vec3<f32>,
+};
+
+@vertex
+fn vs_main(@builtin(vertex_index) vid: u32) -> VSOut {
+  var positions = array<vec2<f32>, 3>(
+    vec2<f32>(0.0,  0.75),
+    vec2<f32>(-0.75, -0.75),
+    vec2<f32>(0.75, -0.75)
+  );
+  var colors = array<vec3<f32>, 3>(
+    vec3<f32>(1.0, 0.0, 0.0),
+    vec3<f32>(0.0, 1.0, 0.0),
+    vec3<f32>(0.0, 0.0, 1.0)
+  );
+  var out: VSOut;
+  out.pos = vec4<f32>(positions[vid], 0.0, 1.0);
+  let t = U.time;
+  let k = 0.5 + 0.5 * cos(t);
+  out.color = mix(colors[vid], vec3<f32>(k, 1.0 - k, 0.5 + 0.5 * sin(t)), 0.5);
+  return out;
+}
+
+@fragment
+fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
+  return vec4<f32>(in.color, 1.0);
+}
+"#,
+            )),
+        });
+
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("triangle_pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        // 7) Async render loop with tokio; update time uniform each frame
+        let start = Instant::now();
+        let mut ticker = tokio::time::interval(Duration::from_millis(16));
+
+        #[cfg(feature = "esc_evdev")]
+        let mut esc_rx = spawn_esc_listener();
+
+        loop {
+            #[cfg(feature = "esc_evdev")]
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => break,
+                _ = &mut esc_rx => break,
+                _ = ticker.tick() => {}
+            }
+            #[cfg(not(feature = "esc_evdev"))]
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => break,
+                _ = ticker.tick() => {}
+            }
+
+            // Update time uniform
+            let t = start.elapsed().as_secs_f32();
+            let u = TimeUniform { t };
+            let data = bytemuck::bytes_of(&u);
+            queue.write_buffer(&time_buf, 0, data);
+
+            // Acquire frame and render
+            let frame = match surface.get_current_texture() {
+                Ok(f) => f,
+                Err(e) => {
+                    eprintln!("surface error: {e:?}; reconfiguring");
+                    surface.configure(&device, &config);
+                    continue;
+                }
+            };
+            let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("encoder") });
+            {
+                let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("rp"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
+                rp.set_pipeline(&pipeline);
+                rp.set_bind_group(0, &bind_group, &[]);
+                rp.draw(0..3, 0..1);
+            }
+            queue.submit([encoder.finish()]);
+            frame.present();
+        }
+
+        Ok(())
+    }
+}
+
+
+// --- BEGIN kms_cpu_scanout ---
+#[cfg(all(target_os = "linux", feature = "kms_cpu_scanout"))]
+mod cpu_scanout {
+    use super::linux::{Card, DrmPick};
+    use anyhow::{anyhow, Context, Result};
+    use drm::control::{self as ctrl, Device as ControlDevice};
+    use drm::buffer::Buffer as _; // bring pitch()/size() into scope for DumbBuffer
+    use std::time::{Duration, Instant};
+
+    /// CPU-only KMS scanout: create one dumb buffer (XRGB8888), set a CRTC, then animate by
+    /// writing new pixels into the mapped dumb buffer each frame. This avoids page-flip plumbing
+    /// initially but produces visible animation. We'll layer proper page flipping later.
+    pub async fn run(card: &Card, pick: DrmPick) -> Result<()> {
+        let fb = setup_kms_framebuffer(card, pick)
+            .and_then(|fb| Ok(fb))
+            .context("setup KMS dumb FB")?;
+
+        // Animate for as long as the process runs. Keep the map alive while drawing.
+        let mut dbuf = fb.dbuf;
+        let pitch = dbuf.pitch();
+        let (w, h) = dbuf.size();
+
+        // Safety: map lifetime is tied to &mut DumbBuffer; keep it alive in this scope.
+        let mut map = card
+            .map_dumb_buffer(&mut dbuf)
+            .map_err(|e| annotate_eacces(e, "map_dumb_buffer"))?;
+
+        // Simple time-based gradient animation written directly into the mapped XRGB8888 buffer.
+        // Byte layout in memory on little-endian: B, G, R, X (ignored/top byte).
+        let start = Instant::now();
+        loop {
+            let t = start.elapsed().as_secs_f32();
+            for y in 0..h {
+                let row = &mut map[(y as usize) * (pitch as usize)..][..(pitch as usize)];
+                for x in 0..w {
+                    let xf = x as f32 / w as f32;
+                    let yf = y as f32 / h as f32;
+                    let r = (((t * 0.7).sin() * 0.5 + 0.5) * 255.0 * xf) as u8;
+                    let g = (((t * 1.1).cos() * 0.5 + 0.5) * 255.0 * yf) as u8;
+                    let b = (((t * 0.9).sin().cos() * 0.5 + 0.5) * 255.0 * (1.0 - xf)) as u8;
+                    let off = (x as usize) * 4;
+                    row[off + 0] = b;      // B
+                    row[off + 1] = g;      // G
+                    row[off + 2] = r;      // R
+                    row[off + 3] = 0xFF;   // X (ignored)
+                }
+            }
+            // ~60 FPS cap without busy-spinning the CPU.
+            tokio::time::sleep(Duration::from_millis(16)).await;
+        }
+    }
+
+    struct FbRes {
+        fb: ctrl::framebuffer::Handle,
+        crtc: ctrl::crtc::Handle,
+        conn: ctrl::connector::Handle,
+        mode: ctrl::Mode,
+        dbuf: ctrl::dumbbuffer::DumbBuffer,
+    }
+
+    fn setup_kms_framebuffer(card: &Card, pick: DrmPick) -> Result<FbRes> {
+        use drm::control::{connector, crtc};
+        let res = card.resource_handles()?;
+
+        // Choose a connected connector with at least one mode.
+        let (conn, conn_info) = res
+            .connectors()
+            .iter()
+            .copied()
+            .filter_map(|c| card.get_connector(c, false).ok().map(|i| (c, i)))
+            .find(|(_, i)| i.state() == connector::State::Connected && !i.modes().is_empty())
+            .ok_or_else(|| anyhow!("no connected connector found"))?;
+
+        // Pick CRTC from the first encoder.
+        let enc = *conn_info
+            .encoders()
+            .get(0)
+            .ok_or_else(|| anyhow!("no encoder for connector"))?;
+        let enc_info = card.get_encoder(enc)?;
+        let crtc = enc_info.crtc().ok_or_else(|| anyhow!("no crtc available"))?;
+
+        // Create XRGB8888 dumb buffer sized to the chosen mode (or requested pick).
+        let mode = *conn_info.modes().get(0).ok_or_else(|| anyhow!("no modes"))?;
+        let width = pick.width.max(1);
+        let height = pick.height.max(1);
+        let mut dbuf = card
+            .create_dumb_buffer((width, height), drm::buffer::DrmFourcc::Xrgb8888, 32)
+            .map_err(|e| annotate_eacces(e, "create_dumb_buffer"))?;
+
+        // Clear to dark gray so something is immediately visible even if the loop stops.
+        {
+            let mut map = card
+                .map_dumb_buffer(&mut dbuf)
+                .map_err(|e| annotate_eacces(e, "map_dumb_buffer"))?;
+            for px in map.chunks_exact_mut(4) {
+                px[0] = 0x20; // B
+                px[1] = 0x20; // G
+                px[2] = 0x20; // R
+                px[3] = 0xFF; // X
+            }
+        }
+
+        let fb = card
+            .add_framebuffer(&dbuf, 24, 32)
+            .map_err(|e| annotate_eacces(e, "add_framebuffer"))?;
+
+        // Set CRTC to scan out from our framebuffer.
+        card
+            .set_crtc(crtc, Some(fb), (0, 0), &[conn], Some(mode))
+            .map_err(|e| annotate_eacces(e, "set_crtc"))?;
+
+        Ok(FbRes { fb, crtc, conn, mode, dbuf })
+    }
+
+    // If we hit EACCES (permission denied), annotate with actionable guidance for DRM master/seat.
+    fn annotate_eacces(err: std::io::Error, where_: &str) -> anyhow::Error {
+        use std::io::ErrorKind;
+        if err.kind() == ErrorKind::PermissionDenied {
+            anyhow!(
+                "{}: Permission denied. Run from a local VT/seat with DRM master (not SSH), or stop the display manager.\n\
+                 Tips:\n\
+                 - Switch to a text VT (e.g., Ctrl+Alt+F2 on Jetson), log in, and run the binary there.\n\
+                 - Ensure your user is in the 'video' group (for /dev/dri/card*).\n\
+                 - If using seatd/logind, launch from a seat-managed session so the process can acquire DRM master.",
+                where_
+            )
+        } else {
+            anyhow!(err).context(where_.to_string())
+        }
+    }
+}
+// --- END kms_cpu_scanout ---
