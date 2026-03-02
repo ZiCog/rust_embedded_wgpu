@@ -18,6 +18,11 @@ async fn main() -> Result<()> {
 
 #[cfg(all(target_os = "linux", feature = "wgpu_drm"))]
 mod linux {
+        #[repr(C)]
+        #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+        pub(crate) struct TimeUbo { pub(crate) time: f32, pub(crate) _pad: [f32; 3] }
+
+
     use anyhow::{bail, Context, Result};
     use std::{
         fs::File,
@@ -201,13 +206,9 @@ mod linux {
         surface.configure(&device, &config);
 
         // 6) Pipeline: color-changing triangle with a time uniform
-        #[repr(C)]
-        #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-        struct TimeUniform { t: f32 }
-
         let time_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("time_ubo"),
-            size: std::mem::size_of::<TimeUniform>() as u64,
+            size: std::mem::size_of::<TimeUbo>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -220,7 +221,7 @@ mod linux {
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: None,
+                    min_binding_size: std::num::NonZeroU64::new(std::mem::size_of::<TimeUbo>() as u64),
                 },
                 count: None,
             }],
@@ -244,40 +245,7 @@ mod linux {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("triangle_wgsl"),
             source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(
-                r#"
-struct Uniforms { time: f32; };
-@group(0) @binding(0) var<uniform> U: Uniforms;
-
-struct VSOut {
-  @builtin(position) pos: vec4<f32>,
-  @location(0) color: vec3<f32>,
-};
-
-@vertex
-fn vs_main(@builtin(vertex_index) vid: u32) -> VSOut {
-  var positions = array<vec2<f32>, 3>(
-    vec2<f32>(0.0,  0.75),
-    vec2<f32>(-0.75, -0.75),
-    vec2<f32>(0.75, -0.75)
-  );
-  var colors = array<vec3<f32>, 3>(
-    vec3<f32>(1.0, 0.0, 0.0),
-    vec3<f32>(0.0, 1.0, 0.0),
-    vec3<f32>(0.0, 0.0, 1.0)
-  );
-  var out: VSOut;
-  out.pos = vec4<f32>(positions[vid], 0.0, 1.0);
-  let t = U.time;
-  let k = 0.5 + 0.5 * cos(t);
-  out.color = mix(colors[vid], vec3<f32>(k, 1.0 - k, 0.5 + 0.5 * sin(t)), 0.5);
-  return out;
-}
-
-@fragment
-fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
-  return vec4<f32>(in.color, 1.0);
-}
-"#,
+                include_str!("../shaders/triangle.wgsl"),
             )),
         });
 
@@ -329,7 +297,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 
             // Update time uniform
             let t = start.elapsed().as_secs_f32();
-            let u = TimeUniform { t };
+            let u = TimeUbo { time: t, _pad: [0.0; 3] };
             let data = bytemuck::bytes_of(&u);
             queue.write_buffer(&time_buf, 0, data);
 
@@ -375,7 +343,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 // --- BEGIN kms_cpu_scanout ---
 #[cfg(all(target_os = "linux", feature = "kms_cpu_scanout"))]
 mod cpu_scanout {
-    use super::linux::{Card, DrmPick};
+    use super::linux::{Card, DrmPick, TimeUbo};
     use anyhow::{anyhow, Context, Result};
     use drm::buffer::Buffer as _; // bring pitch()/size() into scope for DumbBuffer
     use drm::control::{self as ctrl, Device as ControlDevice, Event, PageFlipFlags};
@@ -424,12 +392,7 @@ mod cpu_scanout {
                 .await?;
 
             // Uniform buffer for time (seconds)
-            #[repr(C)]
-            #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-            struct TimeUbo {
-                time: f32,
-            }
-            let time_buf = device.create_buffer(&wgpu::BufferDescriptor {
+let time_buf = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("time_ubo"),
                 size: std::mem::size_of::<TimeUbo>() as u64,
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
@@ -444,7 +407,7 @@ mod cpu_scanout {
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
-                        min_binding_size: NonZeroU64::new(std::mem::size_of::<TimeUbo>() as u64),
+                        min_binding_size: std::num::NonZeroU64::new(std::mem::size_of::<TimeUbo>() as u64),
                     },
                     count: None,
                 }],
@@ -461,39 +424,9 @@ mod cpu_scanout {
             // Simple triangle shader (same animation idea as main path)
             let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("triangle_wgsl"),
-                source: wgpu::ShaderSource::Wgsl(
-                    r#"
-                    struct TimeUbo { time: f32 };
-                    @group(0) @binding(0) var<uniform> u_time: TimeUbo;
-
-                    struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) c: vec3<f32> };
-
-                    @vertex
-                    fn vs_main(@builtin(vertex_index) vi: u32) -> VsOut {
-                        var p = array<vec2<f32>, 3>(
-                            vec2<f32>( 0.0,  0.75),
-                            vec2<f32>(-0.75, -0.75),
-                            vec2<f32>( 0.75, -0.75)
-                        );
-                        let pos = p[vi];
-                        let t = u_time.time;
-                        var out: VsOut;
-                        out.pos = vec4<f32>(pos, 0.0, 1.0);
-                        out.c = vec3<f32>(
-                            0.5 + 0.5 * sin(t * 0.7),
-                            0.5 + 0.5 * cos(t * 1.1),
-                            0.5 + 0.5 * sin(t * 0.9)
-                        );
-                        return out;
-                    }
-
-                    @fragment
-                    fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
-                        return vec4<f32>(in.c, 1.0);
-                    }
-                "#
-                    .into(),
-                ),
+                source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(
+                include_str!("../shaders/triangle.wgsl"),
+            )),
             });
 
             let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -570,10 +503,7 @@ mod cpu_scanout {
 
         fn render_and_read_rgba(&self, t: f32) -> Result<Vec<u8>> {
             // Update time uniform
-            #[repr(C)]
-            #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-            struct TimeUbo { time: f32 }
-            let data = TimeUbo { time: t };
+            let data = TimeUbo { time: t, _pad: [0.0; 3] };
             self.queue.write_buffer(&self.time_buf, 0, bytemuck::bytes_of(&data));
 
             let mut encoder = self
