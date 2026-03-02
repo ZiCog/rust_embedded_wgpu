@@ -13,7 +13,7 @@ kms_cpu_scanout = []
 
 [dependencies]
 anyhow = "1"
-tokio = { version = "1", features = ["rt", "macros", "signal", "time"] }
+tokio = { version = "1", features = ["rt", "macros", "signal", "time", "sync"] }
 # Keep wgpu generic; runtime selects backend. We'll set WGPU_BACKEND=vulkan when running.
 wgpu = "25"
 bytemuck = { version = "1", features = ["derive"] }

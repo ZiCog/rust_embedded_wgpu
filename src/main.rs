@@ -90,7 +90,7 @@ mod linux {
         use std::thread;
         use tokio::sync::oneshot;
 
-        let (tx, rx) = oneshot::channel();
+        let (tx, rx) = oneshot::channel::<()>();
         thread::spawn(move || {
             let mut devices: Vec<Device> = evdev::enumerate()
                 .filter_map(|(p, _)| Device::open(p).ok())
@@ -100,8 +100,8 @@ mod linux {
                 for dev in devices.iter_mut() {
                     if let Ok(events) = dev.fetch_events() {
                         for e in events {
-                            if let Some(code) = e.code() {
-                                if code == Key::ESC && e.value() == 1 {
+                            if let evdev::InputEventKind::Key(key) = e.kind() {
+                                if key == Key::KEY_ESC && e.value() == 1 {
                                     let _ = tx.send(());
                                     break 'outer;
                                 }
