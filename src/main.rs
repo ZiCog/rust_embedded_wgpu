@@ -18,12 +18,14 @@ async fn main() -> Result<()> {
 
 #[cfg(all(target_os = "linux", feature = "wgpu_drm"))]
 mod linux {
-        #[repr(C)]
-        #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-        pub(crate) struct TimeUbo { pub(crate) time: f32, pub(crate) _pad: [f32; 3] }
+    #[repr(C)]
+    #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+    pub(crate) struct TimeUbo {
+        pub(crate) time: f32,
+        pub(crate) _pad: [f32; 3],
+    }
 
-
-    use anyhow::{bail, Context, Result};
+    use anyhow::{Context, Result, bail};
     use std::{
         fs::File,
         os::fd::{AsFd, AsRawFd, BorrowedFd},
@@ -35,8 +37,12 @@ mod linux {
     pub(crate) struct Card(File);
 
     impl Card {
-        fn as_borrowed_fd(&self) -> BorrowedFd<'_> { self.0.as_fd() }
-        fn raw_fd(&self) -> i32 { self.0.as_raw_fd() }
+        fn as_borrowed_fd(&self) -> BorrowedFd<'_> {
+            self.0.as_fd()
+        }
+        fn raw_fd(&self) -> i32 {
+            self.0.as_raw_fd()
+        }
     }
 
     // Implement DRM device traits for our file-backed Card
@@ -44,7 +50,9 @@ mod linux {
     impl ctrl::Device for Card {}
 
     impl AsFd for Card {
-        fn as_fd(&self) -> BorrowedFd<'_> { self.0.as_fd() }
+        fn as_fd(&self) -> BorrowedFd<'_> {
+            self.0.as_fd()
+        }
     }
 
     #[derive(Debug, Clone, Copy)]
@@ -58,15 +66,25 @@ mod linux {
     fn open_card_and_pick() -> Result<(Card, DrmPick)> {
         for i in 0..=9 {
             let path = format!("/dev/dri/card{}", i);
-            let Ok(f) = File::options().read(true).write(true).open(&path) else { continue };
+            let Ok(f) = File::options().read(true).write(true).open(&path) else {
+                continue;
+            };
             let card = Card(f);
 
-            let Ok(res) = card.resource_handles() else { continue };
+            let Ok(res) = card.resource_handles() else {
+                continue;
+            };
             for &conn in res.connectors().iter() {
-                let Ok(info) = card.get_connector(conn, false) else { continue };
-                if info.state() != ctrl::connector::State::Connected { continue; }
+                let Ok(info) = card.get_connector(conn, false) else {
+                    continue;
+                };
+                if info.state() != ctrl::connector::State::Connected {
+                    continue;
+                }
                 let modes = info.modes();
-                if modes.is_empty() { continue; }
+                if modes.is_empty() {
+                    continue;
+                }
                 let preferred = modes
                     .iter()
                     .find(|m| m.mode_type().contains(ModeTypeFlags::PREFERRED))
@@ -147,9 +165,13 @@ mod linux {
             Err(e) => {
                 eprintln!("wgpu DRM surface create failed: {:?}", e);
                 #[cfg(feature = "kms_cpu_scanout")]
-                { return crate::cpu_scanout::run(&card, pick).await; }
+                {
+                    return crate::cpu_scanout::run(&card, pick).await;
+                }
                 #[allow(unreachable_code)]
-                return Err(anyhow::anyhow!("wgpu DRM surface create failed and kms_cpu_scanout not enabled"));
+                return Err(anyhow::anyhow!(
+                    "wgpu DRM surface create failed and kms_cpu_scanout not enabled"
+                ));
             }
         };
 
@@ -178,7 +200,12 @@ mod linux {
             .formats
             .iter()
             .copied()
-            .find(|f| matches!(f, wgpu::TextureFormat::Bgra8UnormSrgb | wgpu::TextureFormat::Rgba8UnormSrgb))
+            .find(|f| {
+                matches!(
+                    f,
+                    wgpu::TextureFormat::Bgra8UnormSrgb | wgpu::TextureFormat::Rgba8UnormSrgb
+                )
+            })
             .unwrap_or_else(|| caps.formats[0]);
         let present_mode = caps
             .present_modes
@@ -221,7 +248,9 @@ mod linux {
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: std::num::NonZeroU64::new(std::mem::size_of::<TimeUbo>() as u64),
+                    min_binding_size: std::num::NonZeroU64::new(
+                        std::mem::size_of::<TimeUbo>() as u64
+                    ),
                 },
                 count: None,
             }],
@@ -244,9 +273,9 @@ mod linux {
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("triangle_wgsl"),
-            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(
-                include_str!("../shaders/triangle.wgsl"),
-            )),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
+                "../shaders/triangle.wgsl"
+            ))),
         });
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -297,7 +326,10 @@ mod linux {
 
             // Update time uniform
             let t = start.elapsed().as_secs_f32();
-            let u = TimeUbo { time: t, _pad: [0.0; 3] };
+            let u = TimeUbo {
+                time: t,
+                _pad: [0.0; 3],
+            };
             let data = bytemuck::bytes_of(&u);
             queue.write_buffer(&time_buf, 0, data);
 
@@ -310,8 +342,12 @@ mod linux {
                     continue;
                 }
             };
-            let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
-            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("encoder") });
+            let view = frame
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("encoder"),
+            });
             {
                 let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("rp"),
@@ -339,12 +375,11 @@ mod linux {
     }
 }
 
-
 // --- BEGIN kms_cpu_scanout ---
 #[cfg(all(target_os = "linux", feature = "kms_cpu_scanout"))]
 mod cpu_scanout {
     use super::linux::{Card, DrmPick, TimeUbo};
-    use anyhow::{anyhow, Context, Result};
+    use anyhow::{Context, Result, anyhow};
     use drm::buffer::Buffer as _; // bring pitch()/size() into scope for DumbBuffer
     use drm::control::{self as ctrl, Device as ControlDevice, Event, PageFlipFlags};
     use std::num::{NonZeroU32, NonZeroU64};
@@ -381,18 +416,16 @@ mod cpu_scanout {
                 .await?;
 
             let (device, queue) = adapter
-                .request_device(
-                    &wgpu::DeviceDescriptor {
-                        label: Some("offscreen_device"),
-                        required_features: wgpu::Features::empty(),
-                        required_limits: wgpu::Limits::default(),
-                        ..Default::default()
-                    },
-                )
+                .request_device(&wgpu::DeviceDescriptor {
+                    label: Some("offscreen_device"),
+                    required_features: wgpu::Features::empty(),
+                    required_limits: wgpu::Limits::default(),
+                    ..Default::default()
+                })
                 .await?;
 
             // Uniform buffer for time (seconds)
-let time_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            let time_buf = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("time_ubo"),
                 size: std::mem::size_of::<TimeUbo>() as u64,
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
@@ -407,7 +440,9 @@ let time_buf = device.create_buffer(&wgpu::BufferDescriptor {
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
-                        min_binding_size: std::num::NonZeroU64::new(std::mem::size_of::<TimeUbo>() as u64),
+                        min_binding_size: std::num::NonZeroU64::new(
+                            std::mem::size_of::<TimeUbo>() as u64
+                        ),
                     },
                     count: None,
                 }],
@@ -424,9 +459,9 @@ let time_buf = device.create_buffer(&wgpu::BufferDescriptor {
             // Simple triangle shader (same animation idea as main path)
             let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("triangle_wgsl"),
-                source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(
-                include_str!("../shaders/triangle.wgsl"),
-            )),
+                source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
+                    "../shaders/triangle.wgsl"
+                ))),
             });
 
             let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -465,7 +500,11 @@ let time_buf = device.create_buffer(&wgpu::BufferDescriptor {
 
             let target = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("offscreen_target"),
-                size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
@@ -503,12 +542,18 @@ let time_buf = device.create_buffer(&wgpu::BufferDescriptor {
 
         fn render_and_read_rgba(&self, t: f32) -> Result<Vec<u8>> {
             // Update time uniform
-            let data = TimeUbo { time: t, _pad: [0.0; 3] };
-            self.queue.write_buffer(&self.time_buf, 0, bytemuck::bytes_of(&data));
+            let data = TimeUbo {
+                time: t,
+                _pad: [0.0; 3],
+            };
+            self.queue
+                .write_buffer(&self.time_buf, 0, bytemuck::bytes_of(&data));
 
             let mut encoder = self
                 .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("encoder") });
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("encoder"),
+                });
 
             // Render triangle to offscreen target
             {
@@ -517,7 +562,10 @@ let time_buf = device.create_buffer(&wgpu::BufferDescriptor {
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &self.target_view,
                         resolve_target: None,
-                        ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
                     })],
                     depth_stencil_attachment: None,
                     timestamp_writes: None,
@@ -544,7 +592,11 @@ let time_buf = device.create_buffer(&wgpu::BufferDescriptor {
                         rows_per_image: Some(self.height),
                     },
                 },
-                wgpu::Extent3d { width: self.width, height: self.height, depth_or_array_layers: 1 },
+                wgpu::Extent3d {
+                    width: self.width,
+                    height: self.height,
+                    depth_or_array_layers: 1,
+                },
             );
 
             self.queue.submit(std::iter::once(encoder.finish()));
@@ -559,7 +611,8 @@ let time_buf = device.create_buffer(&wgpu::BufferDescriptor {
             let mut out = vec![0u8; (self.unpadded_bpr as usize) * (self.height as usize)];
             for y in 0..self.height as usize {
                 let src = &data[y * (self.padded_bpr as usize)..][..(self.unpadded_bpr as usize)];
-                let dst = &mut out[y * (self.unpadded_bpr as usize)..][..(self.unpadded_bpr as usize)];
+                let dst =
+                    &mut out[y * (self.unpadded_bpr as usize)..][..(self.unpadded_bpr as usize)];
                 dst.copy_from_slice(src);
             }
             drop(data);
@@ -588,7 +641,9 @@ let time_buf = device.create_buffer(&wgpu::BufferDescriptor {
         let mut fb = setup_kms_double_fb(card, pick).context("setup KMS double dumb FBs")?;
         let mut back = 1usize; // we set CRTC to bufs[0]; start drawing into bufs[1]
 
-        let mut gfx = Offscreen::new(fb.width, fb.height).await.context("setup wgpu offscreen")?;
+        let mut gfx = Offscreen::new(fb.width, fb.height)
+            .await
+            .context("setup wgpu offscreen")?;
         let start = Instant::now();
 
         loop {
@@ -621,13 +676,7 @@ let time_buf = device.create_buffer(&wgpu::BufferDescriptor {
             }
 
             // Queue page flip to the back buffer on vblank and wait for the flip event.
-            card
-                .page_flip(
-                    fb.crtc,
-                    fb.bufs[back].fb,
-                    PageFlipFlags::EVENT,
-                    None,
-                )
+            card.page_flip(fb.crtc, fb.bufs[back].fb, PageFlipFlags::EVENT, None)
                 .map_err(|e| annotate_eacces(e, "page_flip"))?;
 
             // Block for the flip event on our CRTC
@@ -670,7 +719,9 @@ let time_buf = device.create_buffer(&wgpu::BufferDescriptor {
             .get(0)
             .ok_or_else(|| anyhow!("no encoder for connector"))?;
         let enc_info = card.get_encoder(enc).context("get_encoder")?;
-        let crtc = enc_info.crtc().ok_or_else(|| anyhow!("no crtc available"))?;
+        let crtc = enc_info
+            .crtc()
+            .ok_or_else(|| anyhow!("no crtc available"))?;
 
         let mode = *conn_info
             .modes()
@@ -706,11 +757,17 @@ let time_buf = device.create_buffer(&wgpu::BufferDescriptor {
         let b1 = make_buf("create_dumb_buffer[1]")?;
 
         // Set CRTC to scan out from the first framebuffer initially.
-        card
-            .set_crtc(crtc, Some(b0.fb), (0, 0), &[conn], Some(mode))
+        card.set_crtc(crtc, Some(b0.fb), (0, 0), &[conn], Some(mode))
             .map_err(|e| annotate_eacces(e, "set_crtc"))?;
 
-        Ok(FbRes { crtc, conn, mode, bufs: [b0, b1], width, height })
+        Ok(FbRes {
+            crtc,
+            conn,
+            mode,
+            bufs: [b0, b1],
+            width,
+            height,
+        })
     }
 
     // If we hit EACCES (permission denied), annotate with actionable guidance for DRM master/seat.
