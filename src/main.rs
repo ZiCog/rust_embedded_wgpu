@@ -27,6 +27,9 @@ mod linux {
     };
 
     use drm::control::{self as ctrl, Device as ControlDevice, Event, ModeTypeFlags, PageFlipFlags};
+    use drm::buffer::Buffer as _; // needed for .pitch()
+    use std::io::Write;
+    use std::path::PathBuf;
 
     #[repr(C)]
     #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -250,12 +253,12 @@ mod linux {
 
     // Surface (wgpu DRM) presenter
     struct SurfacePresenter {
-        surface: wgpu::Surface,
+        surface: wgpu::Surface<'static>,
         config: wgpu::SurfaceConfiguration,
     }
     impl SurfacePresenter {
         fn new(
-            surface: wgpu::Surface,
+            surface: wgpu::Surface<'static>,
             adapter: &wgpu::Adapter,
             device: &wgpu::Device,
             width: u32,
@@ -339,7 +342,7 @@ mod linux {
         card: Card,
         // KMS resources
         crtc: ctrl::crtc::Handle,
-        conn: ctrl::connector::Handle,
+        _conn: ctrl::connector::Handle,
         _mode: ctrl::Mode,
         bufs: [DbBuf; 2],
         width: u32,
@@ -351,6 +354,8 @@ mod linux {
         target_view: wgpu::TextureView,
         readback: wgpu::Buffer,
         copy_bpr: u32,
+        dump_path: Option<PathBuf>,  // set DUMP_FRAME=/path/to/out.ppm to save first frame
+        dumped: bool,
     }
     #[cfg(feature = "kms_cpu_scanout")]
     struct DbBuf {
@@ -380,7 +385,7 @@ mod linux {
             let width = pick.width.max(1);
             let height = pick.height.max(1);
 
-            let mut make_buf = |label: &str| -> Result<DbBuf> {
+            let make_buf = |label: &str| -> Result<DbBuf> {
                 let mut dbuf = card
                     .create_dumb_buffer((width, height), drm::buffer::DrmFourcc::Xrgb8888, 32)
                     .map_err(|e| annotate_eacces(e, label))?;
@@ -431,7 +436,7 @@ mod linux {
             Ok(Self {
                 card,
                 crtc,
-                conn,
+                _conn: conn,
                 _mode: mode,
                 bufs: [b0, b1],
                 width,
@@ -442,6 +447,8 @@ mod linux {
                 target_view,
                 readback,
                 copy_bpr,
+                dump_path: std::env::var("DUMP_FRAME").ok().map(PathBuf::from),
+                dumped: false,
             })
         }
         fn copy_to_readback<'a>(&'a self, encoder: &mut wgpu::CommandEncoder) {
@@ -465,7 +472,7 @@ mod linux {
         }
         fn blit_readback_to_dumb(&mut self, device: &wgpu::Device) -> Result<()> {
             // Ensure GPU work is done
-            device.poll(wgpu::PollType::Wait);
+            let _ = device.poll(wgpu::PollType::Wait);
             let slice = self.readback.slice(..);
             slice.map_async(wgpu::MapMode::Read, |_| {});
             let _ = device.poll(wgpu::PollType::Wait);
@@ -492,6 +499,39 @@ mod linux {
             drop(map);
             drop(data);
             self.readback.unmap();
+
+            // Optional first-frame PPM dump for remote display verification
+            if !self.dumped {
+                if let Some(ref path) = self.dump_path {
+                    let w = self.width as usize;
+                    let h = self.height as usize;
+                    let pitch = self.dumb_pitch as usize;
+                    if let Ok(mut file) = std::fs::File::create(path) {
+                        let _ = writeln!(file, "P6");
+                        let _ = writeln!(file, "{} {}", w, h);
+                        let _ = writeln!(file, "255");
+                        // Read the buffer we just rendered into (self.back) -> RGB for PPM
+                        if let Ok(map) = self.card.map_dumb_buffer(&mut self.bufs[self.back].dbuf) {
+                            // Log first pixel so we can tell if GPU rendered anything
+                            let b0 = map[0]; let g0 = map[1]; let r0 = map[2];
+                            eprintln!("Dump pixel[0,0]: R={} G={} B={}", r0, g0, b0);
+                            for y in 0..h {
+                                let row = &map[y * pitch..][..w * 4];
+                                for x in 0..w {
+                                    // XRGB8888 LE: byte0=B, byte1=G, byte2=R, byte3=X
+                                    let b = row[x * 4];
+                                    let g = row[x * 4 + 1];
+                                    let r = row[x * 4 + 2];
+                                    let _ = file.write_all(&[r, g, b]);
+                                }
+                            }
+                        }
+                        eprintln!("Frame dumped to {:?}", path);
+                    }
+                    self.dumped = true;
+                }
+            }
+
             Ok(())
         }
     }
@@ -545,12 +585,15 @@ mod linux {
         // 1) DRM pick
         let (card, pick) = open_card_and_pick().context("pick DRM card/connector/mode")?;
 
-        // 2) wgpu instance (prefer Vulkan)
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::VULKAN,
-            flags: wgpu::InstanceFlags::empty(),
-            ..Default::default()
-        });
+        // 2) wgpu instance (prefer Vulkan).
+        // Leaked so Surface<'static> can be stored in SurfacePresenter.
+        let instance: &'static wgpu::Instance = Box::leak(Box::new(wgpu::Instance::new(
+            &wgpu::InstanceDescriptor {
+                backends: wgpu::Backends::VULKAN,
+                flags: wgpu::InstanceFlags::empty(),
+                ..Default::default()
+            },
+        )));
 
         // 3) Try a DRM surface first
         let surface_res = unsafe {
@@ -566,7 +609,7 @@ mod linux {
         };
 
         // 4) Pick adapter/device based on whether we have a surface
-        let (adapter, device, queue, mut backend): (wgpu::Adapter, wgpu::Device, wgpu::Queue, Box<dyn PresentBackend>) =
+        let (_adapter, device, queue, mut backend): (wgpu::Adapter, wgpu::Device, wgpu::Queue, Box<dyn PresentBackend>) =
             match surface_res {
                 Ok(surface) => {
                     let adapter = instance
@@ -622,7 +665,7 @@ mod linux {
             };
 
         // 5) Single renderer (format comes from the presenter)
-        let mut renderer = Renderer::new(&device, backend.preferred_format());
+        let renderer = Renderer::new(&device, backend.preferred_format());
 
         // 6) Event loop
         let start = Instant::now();
