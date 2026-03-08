@@ -1,4 +1,6 @@
 use anyhow::Result;
+#[cfg(feature = "examples_upstream")]
+mod examples_api;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
