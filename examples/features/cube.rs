@@ -33,7 +33,6 @@ pub struct CubeApp {
     index_count: u32,
     depth: wgpu::Texture,
     depth_view: wgpu::TextureView,
-    format: wgpu::TextureFormat,
     size: ExampleSize,
     // Animation timing
     t_run: f32,
@@ -120,7 +119,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             cache: None,
         });
 
-        Ok(Self { pipeline: rp, bind_group: bg, ubo, vbuf, ibuf, index_count: idx.len() as u32, depth, depth_view, format, size, t_run: 0.0, last_tick: Instant::now(), paused: false })
+        Ok(Self { pipeline: rp, bind_group: bg, ubo, vbuf, ibuf, index_count: idx.len() as u32, depth, depth_view, size, t_run: 0.0, last_tick: Instant::now(), paused: false })
     }
 
     fn tick(&mut self) {
