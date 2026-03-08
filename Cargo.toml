@@ -13,6 +13,7 @@ kms_cpu_scanout = []
 examples_upstream = []
 
 [dependencies]
+pollster = "0.3"
 anyhow = "1"
 tokio = { version = "1", features = ["rt", "macros", "signal", "time", "sync"] }
 # Keep wgpu generic; runtime selects backend. We'll set WGPU_BACKEND=vulkan when running.
@@ -26,3 +27,9 @@ env_logger = "0.11"
 drm = "0.14"
 # Optional keyboard via evdev (enable with --features esc_evdev)
 evdev = { version = "0.12", optional = true }
+
+# Optional runners/binaries (Linux)
+[[bin]]
+name = "hello_triangle_kms"
+path = "src/bin/hello_triangle_kms.rs"
+required-features = ["wgpu_drm", "kms_cpu_scanout", "examples_upstream"]
