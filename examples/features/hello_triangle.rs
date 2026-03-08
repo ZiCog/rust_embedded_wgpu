@@ -3,6 +3,7 @@
 // This keeps the pipeline/shader logic in-file (close to upstream), and only switches the runner.
 
 use anyhow::Result;
+#[cfg(not(feature = "kms_runner"))]
 use anyhow::Context;
 
 #[derive(Clone, Copy, Debug)]
@@ -161,6 +162,15 @@ fn main() -> Result<()> {
         match event {
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => elwt.exit(),
+                WindowEvent::KeyboardInput { event, .. } => {
+                    use winit::event::ElementState;
+                    use winit::keyboard::{Key, NamedKey};
+                    if event.state == ElementState::Pressed {
+                        if let Key::Named(NamedKey::Escape) = &event.logical_key {
+                            elwt.exit();
+                        }
+                    }
+                },
                 WindowEvent::Resized(sz) => {
                     config.width = sz.width.max(1);
                     config.height = sz.height.max(1);

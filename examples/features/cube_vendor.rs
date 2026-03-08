@@ -4,11 +4,9 @@
 // them here so wgpu::include_wgsl!("shader.wgsl") resolves correctly.
 
 #![allow(dead_code)]
-use anyhow::Result;
 
 // Provide a tiny framework module that the upstream cube expects
 mod framework {
-    use super::*;
     pub trait Example {
         fn optional_features() -> wgpu::Features { wgpu::Features::empty() }
         fn init(config: &wgpu::SurfaceConfiguration, adapter: &wgpu::Adapter, device: &wgpu::Device, queue: &wgpu::Queue) -> Self where Self: Sized;
@@ -22,7 +20,7 @@ mod framework {
         use rust_embedded_wgpu::kms;
         let mut ctx = kms::init().expect("kms init");
         let format = ctx.presenter.preferred_format();
-        let mut config = wgpu::SurfaceConfiguration {
+        let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
             width: ctx.presenter.width.max(1),
@@ -98,6 +96,16 @@ mod framework {
             match event {
                 Event::WindowEvent { event, .. } => match event {
                     WindowEvent::CloseRequested => elwt.exit(),
+                    WindowEvent::KeyboardInput { event, .. } => {
+                        use winit::event::ElementState;
+                        use winit::keyboard::{Key, NamedKey};
+                        if event.state == ElementState::Pressed {
+                            match &event.logical_key {
+                                Key::Named(NamedKey::Escape) => elwt.exit(),
+                                _ => {}
+                            }
+                        }
+                    }
                     WindowEvent::Resized(sz) => {
                         config.width = sz.width.max(1);
                         config.height = sz.height.max(1);

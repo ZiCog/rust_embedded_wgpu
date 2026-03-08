@@ -1,0 +1,87 @@
+use anyhow::Result;
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<()> {
+    #[cfg(all(target_os = "linux", feature = "wgpu_drm"))]
+    {
+        return linux::run().await;
+    }
+
+    #[cfg(not(all(target_os = "linux", feature = "wgpu_drm")))]
+    {
+        eprintln!(
+            "This scaffold targets Linux DRM/KMS with wgpu. Build on a Linux device with:\n  cargo run --release --features wgpu_drm\n(Optional ESC via evdev: add --features esc_evdev)"
+        );
+        Ok(())
+    }
+}
+
+#[cfg(all(target_os = "linux", feature = "wgpu_drm"))]
+mod linux {
+    use anyhow::{bail, Context, Result};
+    use std::{
+        fs::File,
+        os::fd::{AsFd, AsRawFd, BorrowedFd},
+        time::{Duration, Instant},
+    };
+
+    use drm::control::{self as ctrl, Device as ControlDevice, ModeTypeFlags};
+
+    pub(crate) struct Card(File);
+
+    impl Card {
+        fn as_borrowed_fd(&self) -> BorrowedFd<'_> { self.0.as_fd() }
+        fn raw_fd(&self) -> i32 { self.0.as_raw_fd() }
+    }
+
+    // Implement DRM device traits for our file-backed Card
+    impl drm::Device for Card {}
+    impl ctrl::Device for Card {}
+
+    impl AsFd for Card {
+        fn as_fd(&self) -> BorrowedFd<'_> { self.0.as_fd() }
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    pub(crate) struct DrmPick {
+        pub(crate) connector_id: u32,
+        pub(crate) width: u32,
+        pub(crate) height: u32,
+        pub(crate) refresh_millihz: u32,
+    }
+
+    fn open_card_and_pick() -> Result<(Card, DrmPick)> {
+        for i in 0..=9 {
+            let path = format!("/dev/dri/card{}", i);
+            let Ok(f) = File::options().read(true).write(true).open(&path) else { continue };
+            let card = Card(f);
+
+            let Ok(res) = card.resource_handles() else { continue };
+            for &conn in res.connectors().iter() {
+                let Ok(info) = card.get_connector(conn, false) else { continue };
+                if info.state() != ctrl::connector::State::Connected { continue; }
+                let modes = info.modes();
+                if modes.is_empty() { continue; }
+                let preferred = modes
+                    .iter()
+                    .find(|m| m.mode_type().contains(ModeTypeFlags::PREFERRED))
+                    .copied()
+                    .unwrap_or(modes[0]);
+
+                let (w, h) = preferred.size();
+                let vrefresh_hz = preferred.vrefresh();
+                let pick = DrmPick {
+                    connector_id: conn.into(),
+                    width: w as u32,
+                    height: h as u32,
+                    refresh_millihz: (vrefresh_hz as u32) * 1000,
+                };
+                return Ok((card, pick));
+            }
+            // If no connected connector on this card, try next card
+        }
+        bail!("No DRM card with a connected connector/mode found");
+    }
+
+    // Optional: spawn an ESC listener via evdev (requires feature "esc_evdev")
+    #[cfg(feature = "esc_evdev")]

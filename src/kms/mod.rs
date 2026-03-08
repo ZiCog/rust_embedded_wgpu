@@ -9,10 +9,6 @@ struct Card(File);
 impl drm::Device for Card {}
 impl ctrl::Device for Card {}
 impl AsFd for Card { fn as_fd(&self) -> BorrowedFd<'_> { self.0.as_fd() } }
-impl Card {
-    fn raw_fd(&self) -> i32 { self.0.as_raw_fd() }
-    fn try_clone(&self) -> std::io::Result<Card> { Ok(Card(self.0.try_clone()?)) }
-}
 
 #[derive(Debug, Clone, Copy)]
 pub struct DrmPick { pub connector_id: u32, pub width: u32, pub height: u32, pub refresh_millihz: u32 }

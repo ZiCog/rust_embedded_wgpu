@@ -1,0 +1,668 @@
+# rust_embedded_wgpu
+# rust_embedded_wgpu
+# rust_embedded_wgpu
+# rust_embedded_wgpu
+# rust_embedded_wgpu
+# rust_embedded_wgpu
+# rust_embedded_wgpu
+# rust_embedded_wgpu
+
+
+
+
+
+
+
+
+Requirements specification and development steps for running a wgpu-based renderer directly on Linux DRM/KMS (no X11/Wayland) on Raspberry Pi and NVIDIA Jetson.
+Requirements specification and development steps for running a wgpu-based renderer directly on Linux DRM/KMS (no X11/Wayland) on Raspberry Pi and NVIDIA Jetson.
+Requirements specification and development steps for running a wgpu-based renderer directly on Linux DRM/KMS (no X11/Wayland) on Raspberry Pi and NVIDIA Jetson.
+Requirements specification and development steps for running a wgpu-based renderer directly on Linux DRM/KMS (no X11/Wayland) on Raspberry Pi and NVIDIA Jetson.
+Requirements specification and development steps for running a wgpu-based renderer directly on Linux DRM/KMS (no X11/Wayland) on Raspberry Pi and NVIDIA Jetson.
+Requirements specification and development steps for running a wgpu-based renderer directly on Linux DRM/KMS (no X11/Wayland) on Raspberry Pi and NVIDIA Jetson.
+Requirements specification and development steps for running a wgpu-based renderer directly on Linux DRM/KMS (no X11/Wayland) on Raspberry Pi and NVIDIA Jetson.
+Requirements specification and development steps for running a wgpu-based renderer directly on Linux DRM/KMS (no X11/Wayland) on Raspberry Pi and NVIDIA Jetson.
+
+
+
+
+
+
+
+
+## 1. Goal and scope
+## 1. Goal and scope
+## 1. Goal and scope
+## 1. Goal and scope
+## 1. Goal and scope
+## 1. Goal and scope
+## 1. Goal and scope
+## 1. Goal and scope
+- Render with Rust + wgpu directly to the display using the Linux DRM/KMS stack (no windowing system).
+- Render with Rust + wgpu directly to the display using the Linux DRM/KMS stack (no windowing system).
+- Render with Rust + wgpu directly to the display using the Linux DRM/KMS stack (no windowing system).
+- Render with Rust + wgpu directly to the display using the Linux DRM/KMS stack (no windowing system).
+- Render with Rust + wgpu directly to the display using the Linux DRM/KMS stack (no windowing system).
+- Render with Rust + wgpu directly to the display using the Linux DRM/KMS stack (no windowing system).
+- Render with Rust + wgpu directly to the display using the Linux DRM/KMS stack (no windowing system).
+- Render with Rust + wgpu directly to the display using the Linux DRM/KMS stack (no windowing system).
+- Primary backend: Vulkan via wgpu.
+- Primary backend: Vulkan via wgpu.
+- Primary backend: Vulkan via wgpu.
+- Primary backend: Vulkan via wgpu.
+- Primary backend: Vulkan via wgpu.
+- Primary backend: Vulkan via wgpu.
+- Primary backend: Vulkan via wgpu.
+- Primary backend: Vulkan via wgpu.
+- Targets: Raspberry Pi 4/5 (Mesa V3DV) and NVIDIA Jetson (L4T/JetPack with Vulkan).
+- Targets: Raspberry Pi 4/5 (Mesa V3DV) and NVIDIA Jetson (L4T/JetPack with Vulkan).
+- Targets: Raspberry Pi 4/5 (Mesa V3DV) and NVIDIA Jetson (L4T/JetPack with Vulkan).
+- Targets: Raspberry Pi 4/5 (Mesa V3DV) and NVIDIA Jetson (L4T/JetPack with Vulkan).
+- Targets: Raspberry Pi 4/5 (Mesa V3DV) and NVIDIA Jetson (L4T/JetPack with Vulkan).
+- Targets: Raspberry Pi 4/5 (Mesa V3DV) and NVIDIA Jetson (L4T/JetPack with Vulkan).
+- Targets: Raspberry Pi 4/5 (Mesa V3DV) and NVIDIA Jetson (L4T/JetPack with Vulkan).
+- Targets: Raspberry Pi 4/5 (Mesa V3DV) and NVIDIA Jetson (L4T/JetPack with Vulkan).
+- Input handled via libinput on the TTY; rootless device access via seatd/libseat.
+- Input handled via libinput on the TTY; rootless device access via seatd/libseat.
+- Input handled via libinput on the TTY; rootless device access via seatd/libseat.
+- Input handled via libinput on the TTY; rootless device access via seatd/libseat.
+- Input handled via libinput on the TTY; rootless device access via seatd/libseat.
+- Input handled via libinput on the TTY; rootless device access via seatd/libseat.
+- Input handled via libinput on the TTY; rootless device access via seatd/libseat.
+- Input handled via libinput on the TTY; rootless device access via seatd/libseat.
+
+
+
+
+
+
+
+
+Non-goals (initially): compositors, multi-seat, hotplug across multiple GPUs, audio.
+Non-goals (initially): compositors, multi-seat, hotplug across multiple GPUs, audio.
+Non-goals (initially): compositors, multi-seat, hotplug across multiple GPUs, audio.
+Non-goals (initially): compositors, multi-seat, hotplug across multiple GPUs, audio.
+Non-goals (initially): compositors, multi-seat, hotplug across multiple GPUs, audio.
+Non-goals (initially): compositors, multi-seat, hotplug across multiple GPUs, audio.
+Non-goals (initially): compositors, multi-seat, hotplug across multiple GPUs, audio.
+Non-goals (initially): compositors, multi-seat, hotplug across multiple GPUs, audio.
+
+
+
+
+
+
+
+
+## 2. High-level architecture
+## 2. High-level architecture
+## 2. High-level architecture
+## 2. High-level architecture
+## 2. High-level architecture
+## 2. High-level architecture
+## 2. High-level architecture
+## 2. High-level architecture
+- Linux kernel DRM/KMS → libdrm for connector/mode enumeration and ownership.
+- Linux kernel DRM/KMS → libdrm for connector/mode enumeration and ownership.
+- Linux kernel DRM/KMS → libdrm for connector/mode enumeration and ownership.
+- Linux kernel DRM/KMS → libdrm for connector/mode enumeration and ownership.
+- Linux kernel DRM/KMS → libdrm for connector/mode enumeration and ownership.
+- Linux kernel DRM/KMS → libdrm for connector/mode enumeration and ownership.
+- Linux kernel DRM/KMS → libdrm for connector/mode enumeration and ownership.
+- Linux kernel DRM/KMS → libdrm for connector/mode enumeration and ownership.
+- Vulkan backend in wgpu.
+- Vulkan backend in wgpu.
+- Vulkan backend in wgpu.
+- Vulkan backend in wgpu.
+- Vulkan backend in wgpu.
+- Vulkan backend in wgpu.
+- Vulkan backend in wgpu.
+- Vulkan backend in wgpu.
+- wgpu creates a DRM/KMS-backed surface (wgpu’s unsafe DRM surface path on Vulkan) and presents frames.
+- wgpu creates a DRM/KMS-backed surface (wgpu’s unsafe DRM surface path on Vulkan) and presents frames.
+- wgpu creates a DRM/KMS-backed surface (wgpu’s unsafe DRM surface path on Vulkan) and presents frames.
+- wgpu creates a DRM/KMS-backed surface (wgpu’s unsafe DRM surface path on Vulkan) and presents frames.
+- wgpu creates a DRM/KMS-backed surface (wgpu’s unsafe DRM surface path on Vulkan) and presents frames.
+- wgpu creates a DRM/KMS-backed surface (wgpu’s unsafe DRM surface path on Vulkan) and presents frames.
+- wgpu creates a DRM/KMS-backed surface (wgpu’s unsafe DRM surface path on Vulkan) and presents frames.
+- wgpu creates a DRM/KMS-backed surface (wgpu’s unsafe DRM surface path on Vulkan) and presents frames.
+- CPU fallback (implemented here): offscreen render with wgpu to RGBA8, read back to CPU, convert to XRGB8888, blit into DRM dumb buffers, and perform vblank-synchronized double-buffered page flips via KMS. Used when the Vulkan DRM surface path is unavailable (e.g., Jetson with separate GPU/display DRM devices).
+- CPU fallback (implemented here): offscreen render with wgpu to RGBA8, read back to CPU, convert to XRGB8888, blit into DRM dumb buffers, and perform vblank-synchronized double-buffered page flips via KMS. Used when the Vulkan DRM surface path is unavailable (e.g., Jetson with separate GPU/display DRM devices).
+- CPU fallback (implemented here): offscreen render with wgpu to RGBA8, read back to CPU, convert to XRGB8888, blit into DRM dumb buffers, and perform vblank-synchronized double-buffered page flips via KMS. Used when the Vulkan DRM surface path is unavailable (e.g., Jetson with separate GPU/display DRM devices).
+- CPU fallback (implemented here): offscreen render with wgpu to RGBA8, read back to CPU, convert to XRGB8888, blit into DRM dumb buffers, and perform vblank-synchronized double-buffered page flips via KMS. Used when the Vulkan DRM surface path is unavailable (e.g., Jetson with separate GPU/display DRM devices).
+- CPU fallback (implemented here): offscreen render with wgpu to RGBA8, read back to CPU, convert to XRGB8888, blit into DRM dumb buffers, and perform vblank-synchronized double-buffered page flips via KMS. Used when the Vulkan DRM surface path is unavailable (e.g., Jetson with separate GPU/display DRM devices).
+- CPU fallback (implemented here): offscreen render with wgpu to RGBA8, read back to CPU, convert to XRGB8888, blit into DRM dumb buffers, and perform vblank-synchronized double-buffered page flips via KMS. Used when the Vulkan DRM surface path is unavailable (e.g., Jetson with separate GPU/display DRM devices).
+- CPU fallback (implemented here): offscreen render with wgpu to RGBA8, read back to CPU, convert to XRGB8888, blit into DRM dumb buffers, and perform vblank-synchronized double-buffered page flips via KMS. Used when the Vulkan DRM surface path is unavailable (e.g., Jetson with separate GPU/display DRM devices).
+- CPU fallback (implemented here): offscreen render with wgpu to RGBA8, read back to CPU, convert to XRGB8888, blit into DRM dumb buffers, and perform vblank-synchronized double-buffered page flips via KMS. Used when the Vulkan DRM surface path is unavailable (e.g., Jetson with separate GPU/display DRM devices).
+- Input gathered with libinput (via evdev) on the same TTY session.
+- Input gathered with libinput (via evdev) on the same TTY session.
+- Input gathered with libinput (via evdev) on the same TTY session.
+- Input gathered with libinput (via evdev) on the same TTY session.
+- Input gathered with libinput (via evdev) on the same TTY session.
+- Input gathered with libinput (via evdev) on the same TTY session.
+- Input gathered with libinput (via evdev) on the same TTY session.
+- Input gathered with libinput (via evdev) on the same TTY session.
+- seatd/libseat provides device access without running as root.
+- seatd/libseat provides device access without running as root.
+- seatd/libseat provides device access without running as root.
+- seatd/libseat provides device access without running as root.
+- seatd/libseat provides device access without running as root.
+- seatd/libseat provides device access without running as root.
+- seatd/libseat provides device access without running as root.
+- seatd/libseat provides device access without running as root.
+
+
+
+
+
+
+
+
+Key Vulkan extensions typically required by the direct-display path:
+Key Vulkan extensions typically required by the direct-display path:
+Key Vulkan extensions typically required by the direct-display path:
+Key Vulkan extensions typically required by the direct-display path:
+Key Vulkan extensions typically required by the direct-display path:
+Key Vulkan extensions typically required by the direct-display path:
+Key Vulkan extensions typically required by the direct-display path:
+Key Vulkan extensions typically required by the direct-display path:
+- VK_KHR_display
+- VK_KHR_display
+- VK_KHR_display
+- VK_KHR_display
+- VK_KHR_display
+- VK_KHR_display
+- VK_KHR_display
+- VK_KHR_display
+- VK_EXT_acquire_drm_display
+- VK_EXT_acquire_drm_display
+- VK_EXT_acquire_drm_display
+- VK_EXT_acquire_drm_display
+- VK_EXT_acquire_drm_display
+- VK_EXT_acquire_drm_display
+- VK_EXT_acquire_drm_display
+- VK_EXT_acquire_drm_display
+- (Helpful) VK_EXT_physical_device_drm
+- (Helpful) VK_EXT_physical_device_drm
+- (Helpful) VK_EXT_physical_device_drm
+- (Helpful) VK_EXT_physical_device_drm
+- (Helpful) VK_EXT_physical_device_drm
+- (Helpful) VK_EXT_physical_device_drm
+- (Helpful) VK_EXT_physical_device_drm
+- (Helpful) VK_EXT_physical_device_drm
+
+
+
+
+
+
+
+
+If these are missing on a given driver, direct-to-DRM via wgpu may not be available.
+If these are missing on a given driver, direct-to-DRM via wgpu may not be available.
+If these are missing on a given driver, direct-to-DRM via wgpu may not be available.
+If these are missing on a given driver, direct-to-DRM via wgpu may not be available.
+If these are missing on a given driver, direct-to-DRM via wgpu may not be available.
+If these are missing on a given driver, direct-to-DRM via wgpu may not be available.
+If these are missing on a given driver, direct-to-DRM via wgpu may not be available.
+If these are missing on a given driver, direct-to-DRM via wgpu may not be available.
+
+
+
+
+
+
+
+
+## 3. System prerequisites (device)
+## 3. System prerequisites (device)
+## 3. System prerequisites (device)
+## 3. System prerequisites (device)
+## 3. System prerequisites (device)
+## 3. System prerequisites (device)
+## 3. System prerequisites (device)
+## 3. System prerequisites (device)
+- Linux with DRM/KMS enabled (standard on recent Raspberry Pi OS and Jetson Linux/L4T).
+- Linux with DRM/KMS enabled (standard on recent Raspberry Pi OS and Jetson Linux/L4T).
+- Linux with DRM/KMS enabled (standard on recent Raspberry Pi OS and Jetson Linux/L4T).
+- Linux with DRM/KMS enabled (standard on recent Raspberry Pi OS and Jetson Linux/L4T).
+- Linux with DRM/KMS enabled (standard on recent Raspberry Pi OS and Jetson Linux/L4T).
+- Linux with DRM/KMS enabled (standard on recent Raspberry Pi OS and Jetson Linux/L4T).
+- Linux with DRM/KMS enabled (standard on recent Raspberry Pi OS and Jetson Linux/L4T).
+- Linux with DRM/KMS enabled (standard on recent Raspberry Pi OS and Jetson Linux/L4T).
+- Working Vulkan driver for your SoC/GPU:
+- Working Vulkan driver for your SoC/GPU:
+- Working Vulkan driver for your SoC/GPU:
+- Working Vulkan driver for your SoC/GPU:
+- Working Vulkan driver for your SoC/GPU:
+- Working Vulkan driver for your SoC/GPU:
+- Working Vulkan driver for your SoC/GPU:
+- Working Vulkan driver for your SoC/GPU:
+  - Raspberry Pi: Mesa V3DV (Vulkan) with KMS enabled (vc4/v3d drivers).
+  - Raspberry Pi: Mesa V3DV (Vulkan) with KMS enabled (vc4/v3d drivers).
+  - Raspberry Pi: Mesa V3DV (Vulkan) with KMS enabled (vc4/v3d drivers).
+  - Raspberry Pi: Mesa V3DV (Vulkan) with KMS enabled (vc4/v3d drivers).
+  - Raspberry Pi: Mesa V3DV (Vulkan) with KMS enabled (vc4/v3d drivers).
+  - Raspberry Pi: Mesa V3DV (Vulkan) with KMS enabled (vc4/v3d drivers).
+  - Raspberry Pi: Mesa V3DV (Vulkan) with KMS enabled (vc4/v3d drivers).
+  - Raspberry Pi: Mesa V3DV (Vulkan) with KMS enabled (vc4/v3d drivers).
+  - Jetson: JetPack/L4T includes NVIDIA’s Vulkan driver.
+  - Jetson: JetPack/L4T includes NVIDIA’s Vulkan driver.
+  - Jetson: JetPack/L4T includes NVIDIA’s Vulkan driver.
+  - Jetson: JetPack/L4T includes NVIDIA’s Vulkan driver.
+  - Jetson: JetPack/L4T includes NVIDIA’s Vulkan driver.
+  - Jetson: JetPack/L4T includes NVIDIA’s Vulkan driver.
+  - Jetson: JetPack/L4T includes NVIDIA’s Vulkan driver.
+  - Jetson: JetPack/L4T includes NVIDIA’s Vulkan driver.
+- Packages (Debian/Ubuntu family):
+- Packages (Debian/Ubuntu family):
+- Packages (Debian/Ubuntu family):
+- Packages (Debian/Ubuntu family):
+- Packages (Debian/Ubuntu family):
+- Packages (Debian/Ubuntu family):
+- Packages (Debian/Ubuntu family):
+- Packages (Debian/Ubuntu family):
+  - Tooling: build-essential, pkg-config, cmake (optional), git, curl
+  - Tooling: build-essential, pkg-config, cmake (optional), git, curl
+  - Tooling: build-essential, pkg-config, cmake (optional), git, curl
+  - Tooling: build-essential, pkg-config, cmake (optional), git, curl
+  - Tooling: build-essential, pkg-config, cmake (optional), git, curl
+  - Tooling: build-essential, pkg-config, cmake (optional), git, curl
+  - Tooling: build-essential, pkg-config, cmake (optional), git, curl
+  - Tooling: build-essential, pkg-config, cmake (optional), git, curl
+  - DRM tooling: libdrm-tests (modetest), kmscube (sanity check), libdrm-dev (if building DRM utilities)
+  - DRM tooling: libdrm-tests (modetest), kmscube (sanity check), libdrm-dev (if building DRM utilities)
+  - DRM tooling: libdrm-tests (modetest), kmscube (sanity check), libdrm-dev (if building DRM utilities)
+  - DRM tooling: libdrm-tests (modetest), kmscube (sanity check), libdrm-dev (if building DRM utilities)
+  - DRM tooling: libdrm-tests (modetest), kmscube (sanity check), libdrm-dev (if building DRM utilities)
+  - DRM tooling: libdrm-tests (modetest), kmscube (sanity check), libdrm-dev (if building DRM utilities)
+  - DRM tooling: libdrm-tests (modetest), kmscube (sanity check), libdrm-dev (if building DRM utilities)
+  - DRM tooling: libdrm-tests (modetest), kmscube (sanity check), libdrm-dev (if building DRM utilities)
+  - Vulkan: vulkan-tools (vulkaninfo), libvulkan1; for Mesa-based systems add mesa-vulkan-drivers
+  - Vulkan: vulkan-tools (vulkaninfo), libvulkan1; for Mesa-based systems add mesa-vulkan-drivers
+  - Vulkan: vulkan-tools (vulkaninfo), libvulkan1; for Mesa-based systems add mesa-vulkan-drivers
+  - Vulkan: vulkan-tools (vulkaninfo), libvulkan1; for Mesa-based systems add mesa-vulkan-drivers
+  - Vulkan: vulkan-tools (vulkaninfo), libvulkan1; for Mesa-based systems add mesa-vulkan-drivers
+  - Vulkan: vulkan-tools (vulkaninfo), libvulkan1; for Mesa-based systems add mesa-vulkan-drivers
+  - Vulkan: vulkan-tools (vulkaninfo), libvulkan1; for Mesa-based systems add mesa-vulkan-drivers
+  - Vulkan: vulkan-tools (vulkaninfo), libvulkan1; for Mesa-based systems add mesa-vulkan-drivers
+  - Input/session: libinput-dev, libinput-tools, libudev-dev, libxkbcommon-dev, seatd, libseat1, libseat-dev
+  - Input/session: libinput-dev, libinput-tools, libudev-dev, libxkbcommon-dev, seatd, libseat1, libseat-dev
+  - Input/session: libinput-dev, libinput-tools, libudev-dev, libxkbcommon-dev, seatd, libseat1, libseat-dev
+  - Input/session: libinput-dev, libinput-tools, libudev-dev, libxkbcommon-dev, seatd, libseat1, libseat-dev
+  - Input/session: libinput-dev, libinput-tools, libudev-dev, libxkbcommon-dev, seatd, libseat1, libseat-dev
+  - Input/session: libinput-dev, libinput-tools, libudev-dev, libxkbcommon-dev, seatd, libseat1, libseat-dev
+  - Input/session: libinput-dev, libinput-tools, libudev-dev, libxkbcommon-dev, seatd, libseat1, libseat-dev
+  - Input/session: libinput-dev, libinput-tools, libudev-dev, libxkbcommon-dev, seatd, libseat1, libseat-dev
+  - Rust toolchain: rustup (installs cargo/rustc)
+  - Rust toolchain: rustup (installs cargo/rustc)
+  - Rust toolchain: rustup (installs cargo/rustc)
+  - Rust toolchain: rustup (installs cargo/rustc)
+  - Rust toolchain: rustup (installs cargo/rustc)
+  - Rust toolchain: rustup (installs cargo/rustc)
+  - Rust toolchain: rustup (installs cargo/rustc)
+  - Rust toolchain: rustup (installs cargo/rustc)
+
+
+
+
+
+
+
+
+Groups/permissions for rootless operation: add your user to video, input, render, and seat (or seatd) groups.
+Groups/permissions for rootless operation: add your user to video, input, render, and seat (or seatd) groups.
+Groups/permissions for rootless operation: add your user to video, input, render, and seat (or seatd) groups.
+Groups/permissions for rootless operation: add your user to video, input, render, and seat (or seatd) groups.
+Groups/permissions for rootless operation: add your user to video, input, render, and seat (or seatd) groups.
+Groups/permissions for rootless operation: add your user to video, input, render, and seat (or seatd) groups.
+Groups/permissions for rootless operation: add your user to video, input, render, and seat (or seatd) groups.
+Groups/permissions for rootless operation: add your user to video, input, render, and seat (or seatd) groups.
+
+
+
+
+
+
+
+
+## 4. Quick checks (before coding)
+## 4. Quick checks (before coding)
+## 4. Quick checks (before coding)
+## 4. Quick checks (before coding)
+## 4. Quick checks (before coding)
+## 4. Quick checks (before coding)
+## 4. Quick checks (before coding)
+## 4. Quick checks (before coding)
+Run these on the target device (Pi/Jetson). Use sudo where noted.
+Run these on the target device (Pi/Jetson). Use sudo where noted.
+Run these on the target device (Pi/Jetson). Use sudo where noted.
+Run these on the target device (Pi/Jetson). Use sudo where noted.
+Run these on the target device (Pi/Jetson). Use sudo where noted.
+Run these on the target device (Pi/Jetson). Use sudo where noted.
+## 8. Next implementation steps
+- Validate the CPU KMS fallback on target hardware (tear-free flips, correct colors, stable timing).
+- Add CLI options for connector-id/mode selection and smarter CRTC/plane picking.
+- Optimize readback + format conversion (e.g., use SIMD/NEON, pipeline copy/convert, consider triple buffering).
+- Extend input handling beyond ESC (optional feature) and add a clean shutdown path across both render modes.
+### 4.1 Install base packages (Debian/Ubuntu)
+### 4.1 Install base packages (Debian/Ubuntu)
+### 4.1 Install base packages (Debian/Ubuntu)
+### 4.1 Install base packages (Debian/Ubuntu)
+```bash
+```bash
+```bash
+```bash
+sudo apt-get update
+sudo apt-get update
+sudo apt-get update
+sudo apt-get update
+# Core build + DRM + Vulkan + input + seatd
+# Core build + DRM + Vulkan + input + seatd
+# Core build + DRM + Vulkan + input + seatd
+# Core build + DRM + Vulkan + input + seatd
+sudo apt-get install -y \
+sudo apt-get install -y \
+sudo apt-get install -y \
+sudo apt-get install -y \
+  build-essential pkg-config cmake git curl \
+  build-essential pkg-config cmake git curl \
+  build-essential pkg-config cmake git curl \
+  build-essential pkg-config cmake git curl \
+  libdrm-tests kmscube libdrm-dev \
+  libdrm-tests kmscube libdrm-dev \
+  libdrm-tests kmscube libdrm-dev \
+  libdrm-tests kmscube libdrm-dev \
+  vulkan-tools libvulkan1 \
+  vulkan-tools libvulkan1 \
+  vulkan-tools libvulkan1 \
+  vulkan-tools libvulkan1 \
+  libinput-dev libinput-tools libudev-dev libxkbcommon-dev \
+  libinput-dev libinput-tools libudev-dev libxkbcommon-dev \
+  libinput-dev libinput-tools libudev-dev libxkbcommon-dev \
+  libinput-dev libinput-tools libudev-dev libxkbcommon-dev \
+  seatd libseat1 libseat-dev
+  seatd libseat1 libseat-dev
+  seatd libseat1 libseat-dev
+  seatd libseat1 libseat-dev
+
+
+
+
+# On Mesa-based (e.g., Raspberry Pi OS / Ubuntu on Pi)
+# On Mesa-based (e.g., Raspberry Pi OS / Ubuntu on Pi)
+# On Mesa-based (e.g., Raspberry Pi OS / Ubuntu on Pi)
+# On Mesa-based (e.g., Raspberry Pi OS / Ubuntu on Pi)
+sudo apt-get install -y mesa-vulkan-drivers
+sudo apt-get install -y mesa-vulkan-drivers
+sudo apt-get install -y mesa-vulkan-drivers
+sudo apt-get install -y mesa-vulkan-drivers
+
+
+
+
+# On Jetson: do NOT install mesa-vulkan-drivers; JetPack provides NVIDIA’s Vulkan
+# On Jetson: do NOT install mesa-vulkan-drivers; JetPack provides NVIDIA’s Vulkan
+# On Jetson: do NOT install mesa-vulkan-drivers; JetPack provides NVIDIA’s Vulkan
+# On Jetson: do NOT install mesa-vulkan-drivers; JetPack provides NVIDIA’s Vulkan
+```
+```
+```
+```
+
+
+
+
+### 4.2 DRM/KMS present and working
+### 4.2 DRM/KMS present and working
+### 4.2 DRM/KMS present and working
+### 4.2 DRM/KMS present and working
+```bash
+```bash
+```bash
+```bash
+# Devices should exist
+# Devices should exist
+# Devices should exist
+# Devices should exist
+ls -l /dev/dri
+ls -l /dev/dri
+ls -l /dev/dri
+ls -l /dev/dri
+
+
+
+
+# Inspect connectors/modes/encoders/planes
+# Inspect connectors/modes/encoders/planes
+# Inspect connectors/modes/encoders/planes
+# Inspect connectors/modes/encoders/planes
+modetest -c -p
+modetest -c -p
+modetest -c -p
+modetest -c -p
+
+
+
+
+# Optional: try kmscube (proves KMS scanout path works)
+# Optional: try kmscube (proves KMS scanout path works)
+# Optional: try kmscube (proves KMS scanout path works)
+# Optional: try kmscube (proves KMS scanout path works)
+kmscube -D /dev/dri/card0 || echo "kmscube failed (may be expected on some Jetson builds)"
+kmscube -D /dev/dri/card0 || echo "kmscube failed (may be expected on some Jetson builds)"
+kmscube -D /dev/dri/card0 || echo "kmscube failed (may be expected on some Jetson builds)"
+kmscube -D /dev/dri/card0 || echo "kmscube failed (may be expected on some Jetson builds)"
+```
+```
+```
+```
+
+
+
+
+### 4.3 Vulkan present and direct-display extensions
+### 4.3 Vulkan present and direct-display extensions
+### 4.3 Vulkan present and direct-display extensions
+### 4.3 Vulkan present and direct-display extensions
+```bash
+```bash
+```bash
+```bash
+# Basic Vulkan sanity
+# Basic Vulkan sanity
+# Basic Vulkan sanity
+# Basic Vulkan sanity
+vulkaninfo | head -n 20
+vulkaninfo | head -n 20
+vulkaninfo | head -n 20
+vulkaninfo | head -n 20
+
+
+
+
+# Look for key extensions (instance or device)
+# Look for key extensions (instance or device)
+# Look for key extensions (instance or device)
+# Look for key extensions (instance or device)
+vulkaninfo | grep -E "VK_(KHR_display|EXT_acquire_drm_display|EXT_physical_device_drm)"
+vulkaninfo | grep -E "VK_(KHR_display|EXT_acquire_drm_display|EXT_physical_device_drm)"
+vulkaninfo | grep -E "VK_(KHR_display|EXT_acquire_drm_display|EXT_physical_device_drm)"
+vulkaninfo | grep -E "VK_(KHR_display|EXT_acquire_drm_display|EXT_physical_device_drm)"
+```
+```
+```
+```
+If `VK_KHR_display` and `VK_EXT_acquire_drm_display` are not reported by your Vulkan driver, wgpu’s DRM surface path will likely be unavailable on that device.
+If `VK_KHR_display` and `VK_EXT_acquire_drm_display` are not reported by your Vulkan driver, wgpu’s DRM surface path will likely be unavailable on that device.
+If `VK_KHR_display` and `VK_EXT_acquire_drm_display` are not reported by your Vulkan driver, wgpu’s DRM surface path will likely be unavailable on that device.
+If `VK_KHR_display` and `VK_EXT_acquire_drm_display` are not reported by your Vulkan driver, wgpu’s DRM surface path will likely be unavailable on that device.
+
+
+
+
+### 4.4 seatd/libseat for rootless device access
+### 4.4 seatd/libseat for rootless device access
+## 7. Risks and fallbacks
+- If the Vulkan direct-display path is unavailable on your driver, the app will attempt it first, log a create-surface failure (e.g., "wgpu DRM surface create failed: ... Failed to find suitable drm device"), then automatically use the CPU KMS fallback (double-buffered, vblank-synchronized) when built with the `kms_cpu_scanout` feature.
+- Running without a proper seat/session or group permissions will prevent DRM/input access as non-root. Ensure seatd is active and that your user is in the `video` and `render` groups (and `input` if the `esc_evdev` feature is enabled), or run via sudo for quick tests.
+# Enable and start seatd (system service providing device access)
+sudo systemctl enable --now seatd.service
+sudo systemctl enable --now seatd.service
+
+
+# Add your user to groups (log out/in after running this):
+# Add your user to groups (log out/in after running this):
+sudo usermod -aG video,input,render,seat $USER || sudo usermod -aG video,input,render,seatd $USER
+sudo usermod -aG video,input,render,seat $USER || sudo usermod -aG video,input,render,seatd $USER
+
+
+# Confirm seatd is active
+# Confirm seatd is active
+systemctl status seatd --no-pager
+systemctl status seatd --no-pager
+```
+```
+
+
+### 4.5 Raspberry Pi specific
+### 4.5 Raspberry Pi specific
+```bash
+```bash
+# KMS overlay should be enabled; check vc4 module
+# KMS overlay should be enabled; check vc4 module
+lsmod | grep -E "vc4|v3d"
+lsmod | grep -E "vc4|v3d"
+# If not present, ensure KMS overlay in /boot/firmware/config.txt (Pi OS Bookworm typically OK):
+# If not present, ensure KMS overlay in /boot/firmware/config.txt (Pi OS Bookworm typically OK):
+# dtoverlay=vc4-kms-v3d
+# dtoverlay=vc4-kms-v3d
+```
+```
+
+
+### 4.6 Jetson specific
+### 4.6 Jetson specific
+```bash
+```bash
+# Check DRM driver name and nodes
+# Check DRM driver name and nodes
+ls -l /dev/dri
+ls -l /dev/dri
+modetest -c -p | sed -n '1,120p'
+modetest -c -p | sed -n '1,120p'
+# Depending on Jetson release, DRM driver may appear as tegra or nvidia
+# Depending on Jetson release, DRM driver may appear as tegra or nvidia
+
+
+# Confirm Vulkan reports NVIDIA driver and extensions
+# Confirm Vulkan reports NVIDIA driver and extensions
+vulkaninfo | grep -E "vendor|driver" | head -n 5
+vulkaninfo | grep -E "vendor|driver" | head -n 5
+vulkaninfo | grep -E "VK_(KHR_display|EXT_acquire_drm_display)"
+vulkaninfo | grep -E "VK_(KHR_display|EXT_acquire_drm_display)"
+```
+```
+
+
+## 5. Development steps
+## 5. Development steps
+
+
+### 5.1 Project setup (already created here)
+### 5.1 Project setup (already created here)
+- This repository was created with `cargo new --vcs none rust_embedded_wgpu`.
+- This repository was created with `cargo new --vcs none rust_embedded_wgpu`.
+- You will write the renderer using wgpu (Vulkan backend) and enumerate DRM via `drm`/`drm-rs`.
+- You will write the renderer using wgpu (Vulkan backend) and enumerate DRM via `drm`/`drm-rs`.
+
+
+### 5.2 Dependencies (Rust)
+### 5.2 Dependencies (Rust)
+Add as you implement (do not add Linux-only crates on macOS builds unless behind cfg):
+Add as you implement (do not add Linux-only crates on macOS builds unless behind cfg):
+- anyhow (error handling)
+- anyhow (error handling)
+- wgpu (targeting Vulkan backend)
+- wgpu (targeting Vulkan backend)
+- drm (aka drm-rs) for KMS connector/mode enumeration
+- drm (aka drm-rs) for KMS connector/mode enumeration
+- nix or rustix for FDs and ioctl wrappers (if needed)
+- nix or rustix for FDs and ioctl wrappers (if needed)
+- input/libinput-rs + xkbcommon for keyboard
+- input/libinput-rs + xkbcommon for keyboard
+- libseat (via FFI crate, or call through seatd CLI for prototyping)
+- libseat (via FFI crate, or call through seatd CLI for prototyping)
+
+
+Example Cargo.toml snippets (Linux-only crates under cfg to keep macOS builds happy):
+Example Cargo.toml snippets (Linux-only crates under cfg to keep macOS builds happy):
+```toml
+```toml
+[target.'cfg(all(unix, not(target_vendor = "apple")))'.dependencies]
+[target.'cfg(all(unix, not(target_vendor = "apple")))'.dependencies]
+drm = "0.14"
+drm = "0.14"
+input = "0.8"
+input = "0.8"
+```
+```
+
+
+### 5.3 Core program flow
+### 5.3 Core program flow
+1) Acquire DRM device (non-root via libseat) and choose a connected connector + preferred mode using drm-rs.
+1) Acquire DRM device (non-root via libseat) and choose a connected connector + preferred mode using drm-rs.
+2) Create `wgpu::Instance` restricted to Vulkan backend.
+2) Create `wgpu::Instance` restricted to Vulkan backend.
+3) Create `wgpu` surface from DRM using the unsafe DRM target; keep the DRM fd alive for the lifetime of the surface.
+3) Create `wgpu` surface from DRM using the unsafe DRM target; keep the DRM fd alive for the lifetime of the surface.
+4) Request adapter/device/queue with the surface as the present target; get capabilities and configure the surface.
+4) Request adapter/device/queue with the surface as the present target; get capabilities and configure the surface.
+5) Render frames; present; handle input events each frame.
+5) Render frames; present; handle input events each frame.
+6) On exit, drop the surface before closing the DRM fd; restore terminal state.
+6) On exit, drop the surface before closing the DRM fd; restore terminal state.
+### 5.4 Build and run on device
+- Build with the DRM path and the CPU fallback enabled:
+```bash
+cargo build --release --features wgpu_drm,kms_cpu_scanout
+```
+- Optional: enable ESC-to-exit via evdev (requires membership in the input group):
+```bash
+cargo build --release --features wgpu_drm,kms_cpu_scanout,esc_evdev
+```
+- Run from a DRM-capable virtual terminal (not under X/Wayland):
+```bash
+export WGPU_BACKEND=vulkan
+export RUST_LOG=info
+# If using seatd for rootless device access:
+# export LIBSEAT_BACKEND=seatd
+./target/release/rust_embedded_wgpu
+```
+- Expected on Jetson and some devices: you may see
+  "wgpu DRM surface create failed: ... Failed to find suitable drm device". This is normal when the driver lacks the Vulkan direct-display extensions or has split GPU/display DRM devices. The app will automatically switch to the CPU KMS scanout fallback, and you should see the animated triangle.
+
+- Stop with Ctrl+C (or ESC if built with the esc_evdev feature).
+
+### 5.5 Feature flags
+- wgpu_drm: Enables the direct Vulkan→DRM surface path in wgpu.
+- kms_cpu_scanout: Enables the CPU fallback path: offscreen wgpu render → CPU readback → RGBA→XRGB8888 → KMS dumb-buffer blit with double-buffered page flips.
+- esc_evdev: Optional ESC key listener via evdev to exit cleanly (adds evdev dependency; requires membership in the input group).
+
+## 6. Convenience scripts (provided in scripts/)
+- `scripts/install_prereqs_debian.sh` – Installs required packages on Debian/Ubuntu devices (Pi/Jetson). Adjust for Jetson by omitting mesa-vulkan-drivers.
+- `scripts/verify_stack.sh` – Verifies DRM nodes, modetest output, Vulkan presence and extensions, and seatd status.
+
+## 7. Risks and fallbacks
+- If the Vulkan driver does not advertise `VK_KHR_display` and `VK_EXT_acquire_drm_display`, the direct-to-DRM wgpu path will not work on that device. Consider updating drivers/mesa or using a different present path. As a last resort, render offscreen and manage KMS/planes yourself (significantly more work and not portable).
+- Running without a seat/session (or correct groups) will prevent DRM/input access as non-root; use seatd.
+
+## 8. Next implementation steps
+- Wire up drm-rs to pick a connector/mode and keep the DRM fd open.
+- Create the `wgpu` DRM surface and draw a triangle.
+- Integrate libinput for keyboard; ESC to exit.
+- Add config flags (env/CLI) for connector-id, mode, and plane index.
+
+---
+This document lives in README so it can travel with the project. See `scripts/` for ready-to-run checks.

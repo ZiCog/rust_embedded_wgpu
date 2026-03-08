@@ -35,11 +35,14 @@ pub struct CubeApp {
     depth_view: wgpu::TextureView,
     format: wgpu::TextureFormat,
     size: ExampleSize,
-    start: Instant,
+    // Animation timing
+    t_run: f32,
+    last_tick: Instant,
+    paused: bool,
 }
 
 impl CubeApp {
-    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat, size: ExampleSize) -> Result<Self> {
+    pub fn new(device: &wgpu::Device, _queue: &wgpu::Queue, format: wgpu::TextureFormat, size: ExampleSize) -> Result<Self> {
         let shader_src = r#"
 struct Uniforms { mvp: mat4x4<f32> }
 @group(0) @binding(0) var<uniform> U: Uniforms;
@@ -117,11 +120,20 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             cache: None,
         });
 
-        Ok(Self { pipeline: rp, bind_group: bg, ubo, vbuf, ibuf, index_count: idx.len() as u32, depth, depth_view, format, size, start: Instant::now() })
+        Ok(Self { pipeline: rp, bind_group: bg, ubo, vbuf, ibuf, index_count: idx.len() as u32, depth, depth_view, format, size, t_run: 0.0, last_tick: Instant::now(), paused: false })
     }
 
+    fn tick(&mut self) {
+        let now = Instant::now();
+        let dt = (now - self.last_tick).as_secs_f32();
+        self.last_tick = now;
+        if !self.paused { self.t_run += dt; }
+    }
+
+    pub fn toggle_pause(&mut self) { self.paused = !self.paused; }
+
     fn mvp(&self) -> Uniforms {
-        let t = self.start.elapsed().as_secs_f32();
+        let t = self.t_run;
         let aspect = (self.size.width.max(1) as f32) / (self.size.height.max(1) as f32);
         let proj = Mat4::perspective_rh_gl(45f32.to_radians(), aspect, 0.1, 100.0);
         let view = Mat4::look_at_rh(Vec3::new(2.5* t.cos(), 2.0, 2.5* t.sin()), Vec3::ZERO, Vec3::Y);
@@ -144,8 +156,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         self.depth = depth;
     }
 
-    pub fn render(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) -> Result<()> {
-        // Update UBO
+    pub fn render(&mut self, _device: &wgpu::Device, queue: &wgpu::Queue, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) -> Result<()> {
+        // Advance animation timer and update UBO
+        self.tick();
         let u = self.mvp();
         queue.write_buffer(&self.ubo, 0, bytemuck::bytes_of(&u));
 
@@ -234,8 +247,20 @@ fn main() -> Result<()> {
     event_loop.run(|event, elwt| {
         elwt.set_control_flow(ControlFlow::Poll);
         match event {
-            Event::WindowEvent { event, .. } => match event {
+                Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => elwt.exit(),
+                WindowEvent::KeyboardInput { event, .. } => {
+                    use winit::event::ElementState;
+                    use winit::keyboard::{Key, NamedKey};
+                    if event.state == ElementState::Pressed {
+                        match &event.logical_key {
+                            Key::Named(NamedKey::Escape) => elwt.exit(),
+                            Key::Named(NamedKey::Space) => app.toggle_pause(),
+                            Key::Character(s) if s == " " => app.toggle_pause(),
+                            _ => {}
+                        }
+                    }
+                },
                 WindowEvent::Resized(sz) => {
                     config.width = sz.width.max(1);
                     config.height = sz.height.max(1);
