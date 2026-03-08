@@ -172,27 +172,27 @@ fn main() -> Result<()> {
                     config.height = sz.height.max(1);
                     surface.configure(&device, &config);
                 }
+                WindowEvent::RedrawRequested => {
+                    match surface.get_current_texture() {
+                        Ok(frame) => {
+                            let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+                            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("encoder") });
+                            let _ = app.render(&mut encoder, &view);
+                            queue.submit([encoder.finish()]);
+                            frame.present();
+                        }
+                        Err(wgpu::SurfaceError::Lost) | Err(wgpu::SurfaceError::Outdated) => {
+                            surface.configure(&device, &config);
+                        }
+                        Err(wgpu::SurfaceError::OutOfMemory) => {
+                            elwt.exit();
+                        }
+                        Err(_) => {}
+                    }
+                }
                 _ => {}
             },
             Event::AboutToWait => window.request_redraw(),
-            Event::WindowEvent { event: WindowEvent::RedrawRequested, .. } => {
-                match surface.get_current_texture() {
-                    Ok(frame) => {
-                        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
-                        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("encoder") });
-                        let _ = app.render(&mut encoder, &view);
-                        queue.submit([encoder.finish()]);
-                        frame.present();
-                    }
-                    Err(wgpu::SurfaceError::Lost) | Err(wgpu::SurfaceError::Outdated) => {
-                        surface.configure(&device, &config);
-                    }
-                    Err(wgpu::SurfaceError::OutOfMemory) => {
-                        elwt.exit();
-                    }
-                    Err(_) => {}
-                }
-            }
             _ => {}
         }
     }).unwrap();
