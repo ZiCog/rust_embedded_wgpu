@@ -146,14 +146,14 @@ pub fn init() -> Result<KmsContext> {
     Ok(KmsContext { device, queue, presenter })
 }
 
-pub fn frame_loop(mut ctx: KmsContext, mut render: impl FnMut(&mut wgpu::CommandEncoder, &wgpu::TextureView) -> Result<()>) -> Result<()> {
+pub fn frame_loop(mut ctx: KmsContext, mut render: impl FnMut(&wgpu::Device, &wgpu::Queue, &mut wgpu::CommandEncoder, &wgpu::TextureView) -> Result<()>) -> Result<()> {
     let mut last = std::time::Instant::now();
     loop {
         let now = std::time::Instant::now();
         if now.duration_since(last) < Duration::from_millis(16) { std::thread::sleep(Duration::from_millis(1)); continue }
         last = now;
         let mut encoder = ctx.presenter.begin_frame(&ctx.device);
-        render(&mut encoder, &ctx.presenter.target_view)?;
+        render(&ctx.device, &ctx.queue, &mut encoder, &ctx.presenter.target_view)?;
         ctx.presenter.end_frame(encoder, &ctx.device, &ctx.queue)?;
     }
 }

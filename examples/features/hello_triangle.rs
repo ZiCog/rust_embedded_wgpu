@@ -104,7 +104,7 @@ fn main() -> Result<()> {
         ctx.presenter.preferred_format(),
         ExampleSize { width: ctx.presenter.width, height: ctx.presenter.height },
     )?;
-    frame_loop(ctx, move |encoder, view| app.render(encoder, view))
+    frame_loop(ctx, move |_device, _queue, encoder, view| app.render(encoder, view))
 }
 
 #[cfg(not(feature = "kms_runner"))]

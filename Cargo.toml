@@ -15,6 +15,7 @@ kms_runner = ["wgpu_drm", "kms_cpu_scanout", "examples_upstream"]
 
 [dependencies]
 pollster = "0.3"
+glam = "0.29"
 anyhow = "1"
 tokio = { version = "1", features = ["rt", "macros", "signal", "time", "sync"] }
 # Keep wgpu generic; runtime selects backend. We'll set WGPU_BACKEND=vulkan when running.
@@ -39,4 +40,9 @@ required-features = ["wgpu_drm", "kms_cpu_scanout", "examples_upstream"]
 [[example]]
 name = "hello_triangle"
 path = "examples/features/hello_triangle.rs"
+required-features = ["wgpu_drm", "kms_cpu_scanout", "examples_upstream"]
+
+[[example]]
+name = "cube"
+path = "examples/features/cube.rs"
 required-features = ["wgpu_drm", "kms_cpu_scanout", "examples_upstream"]
