@@ -133,7 +133,7 @@ impl KmsCpuPresenter {
     }
 }
 
-pub struct KmsContext { pub device: wgpu::Device, pub queue: wgpu::Queue, pub presenter: KmsCpuPresenter }
+pub struct KmsContext { pub adapter: wgpu::Adapter, pub device: wgpu::Device, pub queue: wgpu::Queue, pub presenter: KmsCpuPresenter }
 
 pub fn init() -> Result<KmsContext> {
     let _ = env_logger::try_init();
@@ -143,7 +143,7 @@ pub fn init() -> Result<KmsContext> {
         .context("No suitable adapter for offscreen KMS scanout")?;
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor { label: Some("offscreen_device"), required_features: wgpu::Features::empty(), required_limits: wgpu::Limits::downlevel_defaults(), ..Default::default() }))?;
     let presenter = KmsCpuPresenter::new(card, pick, &device).context("init KMS CPU presenter")?;
-    Ok(KmsContext { device, queue, presenter })
+    Ok(KmsContext { adapter, device, queue, presenter })
 }
 
 pub fn frame_loop(mut ctx: KmsContext, mut render: impl FnMut(&wgpu::Device, &wgpu::Queue, &mut wgpu::CommandEncoder, &wgpu::TextureView) -> Result<()>) -> Result<()> {
@@ -155,5 +155,22 @@ pub fn frame_loop(mut ctx: KmsContext, mut render: impl FnMut(&wgpu::Device, &wg
         let mut encoder = ctx.presenter.begin_frame(&ctx.device);
         render(&ctx.device, &ctx.queue, &mut encoder, &ctx.presenter.target_view)?;
         ctx.presenter.end_frame(encoder, &ctx.device, &ctx.queue)?;
+    }
+}
+
+impl KmsCpuPresenter {
+    pub fn present_only(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> Result<()> {
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("kms_present") });
+        self.copy_to_readback(&mut encoder);
+        queue.submit([encoder.finish()]);
+        self.blit_readback_to_dumb(device)?;
+        self.card.page_flip(self.crtc, self.bufs[self.back].fb, PageFlipFlags::EVENT, None).map_err(|e| annotate_eacces(e, "page_flip"))?;
+        loop {
+            let evs = self.card.receive_events().map_err(|e| annotate_eacces(e, "receive_events"))?;
+            let mut done=false; for ev in evs { if let Event::PageFlip(e)=ev { if e.crtc==self.crtc { done=true; } } }
+            if done { break } std::thread::sleep(Duration::from_millis(1));
+        }
+        self.back ^= 1;
+        Ok(())
     }
 }

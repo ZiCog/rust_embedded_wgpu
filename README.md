@@ -106,3 +106,28 @@ Notes
 - CLI options for connector-id / mode selection and smarter CRTC/plane picking
 - Readback/format-conversion optimizations (SIMD/NEON, pipelined copy/convert, triple buffering)
 - Broader input handling and unified shutdown across both render modes
+
+
+## Running the upstream examples
+
+The repository vendors upstream wgpu examples under `examples/features/` with a tiny shim so each example can run either headless (DRM/KMS) or windowed (winit), from the same source file.
+
+- Windowed (winit; e.g., macOS/Linux desktop)
+  - Build & run cube (vendor):
+    - `cargo run --example cube_vendor --features examples_upstream`
+  - Build & run hello_triangle:
+    - `cargo run --example hello_triangle --features examples_upstream`
+
+- Headless DRM/KMS (Raspberry Pi / Jetson on a real VT)
+  - Prereqs: run from a real VT (not X/Wayland), have a connected HDMI sink (or dummy), proper permissions for `/dev/dri/*` (user in `video`, `render`). On Jetson, ensure `tegra-udrm` with modeset is active.
+  - Raspberry Pi suggested backend (Mesa v3d):
+    - `WGPU_BACKEND=gl cargo run --example cube_vendor --features kms_runner --no-default-features`
+  - Jetson suggested backend (Vulkan):
+    - `WGPU_BACKEND=vulkan cargo run --example cube_vendor --features kms_runner --no-default-features`
+  - hello_triangle (headless):
+    - `WGPU_BACKEND=gl cargo run --example hello_triangle --features kms_runner --no-default-features`
+
+Notes
+- If you see lavapipe/Vulkan software warnings on Pi, switch to `WGPU_BACKEND=gl`.
+- The KMS path renders offscreen, CPU-copies to a dumb buffer, and page-flips synchronized to vblank.
+- SurfaceConfiguration in these examples sets `desired_maximum_frame_latency = 2` for wgpu 0.25.

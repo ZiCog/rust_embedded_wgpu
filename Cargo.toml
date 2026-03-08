@@ -23,7 +23,7 @@ wgpu = "25"
 bytemuck = { version = "1", features = ["derive"] }
 log = "0.4"
 env_logger = "0.11"
-winit = "0.28"
+winit = "0.29"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # DRM/KMS control (enumerate connectors/modes)
@@ -35,14 +35,19 @@ evdev = { version = "0.12", optional = true }
 [[bin]]
 name = "hello_triangle_kms"
 path = "src/bin/hello_triangle_kms.rs"
-required-features = ["wgpu_drm", "kms_cpu_scanout", "examples_upstream"]
+required-features = ["examples_upstream"]
 
 [[example]]
 name = "hello_triangle"
 path = "examples/features/hello_triangle.rs"
-required-features = ["wgpu_drm", "kms_cpu_scanout", "examples_upstream"]
+required-features = ["examples_upstream"]
 
 [[example]]
 name = "cube"
 path = "examples/features/cube.rs"
-required-features = ["wgpu_drm", "kms_cpu_scanout", "examples_upstream"]
+required-features = ["examples_upstream"]
+
+[[example]]
+name = "cube_vendor"
+path = "examples/features/cube_vendor.rs"
+required-features = ["examples_upstream"]
