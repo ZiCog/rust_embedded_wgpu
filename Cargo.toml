@@ -11,6 +11,7 @@ wgpu_drm = []
 esc_evdev = ["evdev"]
 kms_cpu_scanout = []
 examples_upstream = []
+kms_runner = ["wgpu_drm", "kms_cpu_scanout", "examples_upstream"]
 
 [dependencies]
 pollster = "0.3"
@@ -21,6 +22,7 @@ wgpu = "25"
 bytemuck = { version = "1", features = ["derive"] }
 log = "0.4"
 env_logger = "0.11"
+winit = "0.28"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # DRM/KMS control (enumerate connectors/modes)
@@ -32,4 +34,9 @@ evdev = { version = "0.12", optional = true }
 [[bin]]
 name = "hello_triangle_kms"
 path = "src/bin/hello_triangle_kms.rs"
+required-features = ["wgpu_drm", "kms_cpu_scanout", "examples_upstream"]
+
+[[example]]
+name = "hello_triangle"
+path = "examples/features/hello_triangle.rs"
 required-features = ["wgpu_drm", "kms_cpu_scanout", "examples_upstream"]
