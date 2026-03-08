@@ -2,6 +2,8 @@ use anyhow::Result;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
+    // Initialize logging once (respects RUST_LOG); ignore error if already inited.
+    let _ = env_logger::try_init();
     #[cfg(all(target_os = "linux", feature = "wgpu_drm"))]
     {
         return linux::run().await;
@@ -585,33 +587,73 @@ mod linux {
         // 1) DRM pick
         let (card, pick) = open_card_and_pick().context("pick DRM card/connector/mode")?;
 
-        // 2) wgpu instance (prefer Vulkan).
+        // 2) Decide backends based on WGPU_BACKEND env var, then create instance.
+        //    Default (no env var): try Vulkan first, fall back to GL.
+        //    WGPU_BACKEND=vulkan  -> Vulkan only (fast path, may use lavapipe software renderer)
+        //    WGPU_BACKEND=gl      -> GL only (Mesa v3d on Pi; skips DRM surface attempt)
+        let env_backend = std::env::var("WGPU_BACKEND").ok();
+        let allowed_backends = match env_backend.as_deref().map(str::to_ascii_lowercase).as_deref() {
+            Some(s) if s.contains("gl") && !s.contains("vulkan") => {
+                log::info!("WGPU_BACKEND=gl: using GL backend only");
+                wgpu::Backends::GL
+            }
+            Some(s) if s.contains("vulkan") || s.contains("vk") => {
+                log::info!("WGPU_BACKEND=vulkan: using Vulkan backend only");
+                wgpu::Backends::VULKAN
+            }
+            Some(other) => {
+                log::warn!("WGPU_BACKEND={other:?} unrecognised, defaulting to Vulkan+GL");
+                wgpu::Backends::VULKAN | wgpu::Backends::GL
+            }
+            None => {
+                log::info!("WGPU_BACKEND not set: will try Vulkan, fall back to GL");
+                wgpu::Backends::VULKAN | wgpu::Backends::GL
+            }
+        };
         // Leaked so Surface<'static> can be stored in SurfacePresenter.
         let instance: &'static wgpu::Instance = Box::leak(Box::new(wgpu::Instance::new(
             &wgpu::InstanceDescriptor {
-                backends: wgpu::Backends::VULKAN,
+                backends: allowed_backends,
                 flags: wgpu::InstanceFlags::empty(),
                 ..Default::default()
             },
         )));
 
-        // 3) Try a DRM surface first
-        let surface_res = unsafe {
-            use wgpu::SurfaceTargetUnsafe;
-            instance.create_surface_unsafe(SurfaceTargetUnsafe::Drm {
-                fd: card.raw_fd(),
-                plane: 0,
-                connector_id: pick.connector_id,
-                width: pick.width,
-                height: pick.height,
-                refresh_rate: pick.refresh_millihz,
-            })
-        };
+        // 3) Try Vulkan direct-to-DRM surface (requires VK_EXT_acquire_drm_display).
+        //    This only makes sense when Vulkan is in the allowed set.
+        let surface_opt: Option<wgpu::Surface<'static>> =
+            if allowed_backends.contains(wgpu::Backends::VULKAN) {
+                log::info!("attempting Vulkan DRM surface (VK_EXT_acquire_drm_display)...");
+                let res = unsafe {
+                    use wgpu::SurfaceTargetUnsafe;
+                    instance.create_surface_unsafe(SurfaceTargetUnsafe::Drm {
+                        fd: card.raw_fd(),
+                        plane: 0,
+                        connector_id: pick.connector_id,
+                        width: pick.width,
+                        height: pick.height,
+                        refresh_rate: pick.refresh_millihz,
+                    })
+                };
+                match res {
+                    Ok(s) => {
+                        log::info!("Vulkan DRM surface created successfully");
+                        Some(s)
+                    }
+                    Err(e) => {
+                        log::info!("Vulkan DRM surface unavailable ({e:#}); will use KMS CPU fallback");
+                        None
+                    }
+                }
+            } else {
+                log::info!("Vulkan not in allowed backends — skipping DRM surface, using KMS CPU fallback");
+                None
+            };
 
         // 4) Pick adapter/device based on whether we have a surface
         let (_adapter, device, queue, mut backend): (wgpu::Adapter, wgpu::Device, wgpu::Queue, Box<dyn PresentBackend>) =
-            match surface_res {
-                Ok(surface) => {
+            match surface_opt {
+                Some(surface) => {
                     let adapter = instance
                         .request_adapter(&wgpu::RequestAdapterOptions {
                             power_preference: wgpu::PowerPreference::HighPerformance,
@@ -620,19 +662,23 @@ mod linux {
                         })
                         .await
                         .context("No suitable Vulkan adapter for DRM surface")?;
+                    {
+                        let info = adapter.get_info();
+                        log::info!("using adapter: name='{}' backend={:?} type={:?}", info.name, info.backend, info.device_type);
+                    }
                     let (device, queue) = adapter
                         .request_device(&wgpu::DeviceDescriptor {
                             label: Some("device"),
                             required_features: wgpu::Features::empty(),
-                            required_limits: wgpu::Limits::default(),
+                            required_limits: wgpu::Limits::downlevel_defaults(),
                             ..Default::default()
                         })
                         .await?;
                     let presenter = SurfacePresenter::new(surface, &adapter, &device, pick.width, pick.height);
                     (adapter, device, queue, Box::new(presenter))
                 }
-                Err(e) => {
-                    eprintln!("wgpu DRM surface create failed: {:?}", e);
+                None => {
+                    log::info!("using KMS CPU fallback: render offscreen, blit to dumb buffer, page-flip");
                     #[cfg(feature = "kms_cpu_scanout")]
                     {
                         let adapter = instance
@@ -642,12 +688,16 @@ mod linux {
                                 force_fallback_adapter: false,
                             })
                             .await
-                            .context("No suitable Vulkan adapter for offscreen")?;
+                            .context("No suitable adapter for offscreen KMS scanout")?;
+                        {
+                            let info = adapter.get_info();
+                            log::info!("using adapter: name='{}' backend={:?} type={:?}", info.name, info.backend, info.device_type);
+                        }
                         let (device, queue) = adapter
                             .request_device(&wgpu::DeviceDescriptor {
                                 label: Some("offscreen_device"),
                                 required_features: wgpu::Features::empty(),
-                                required_limits: wgpu::Limits::default(),
+                                required_limits: wgpu::Limits::downlevel_defaults(),
                                 ..Default::default()
                             })
                             .await?;

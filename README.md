@@ -22,6 +22,9 @@ A minimal Rust + wgpu renderer that targets Linux DRM/KMS directly (no X11/Wayla
   - Optionally for rootless device access: seatd, libseat1
 - Permissions (for rootless runs): add your user to video, render (and input if using ESC via evdev). Start seatd: `sudo systemctl enable --now seatd`.
 
+
+Backend selection in short: on Raspberry Pi prefer `WGPU_BACKEND=gl`; on Jetson prefer Vulkan if drivers support direct-display, otherwise fallback engages automatically.
+
 Quick checks:
 - `ls -l /dev/dri` (DRM nodes present)
 - `modetest -c -p` (connectors/modes/planes)
@@ -38,19 +41,36 @@ cargo build --release --features wgpu_drm,kms_cpu_scanout,esc_evdev
 ```
 
 ## 4. Run
-Run from a DRM-capable virtual terminal (not under X/Wayland):
+Run from a DRM-capable virtual terminal (not under X/Wayland). Examples:
+
+- Raspberry Pi (recommended): use GL backend for the stable Mesa v3d driver
 ```bash
-export WGPU_BACKEND=vulkan
 export RUST_LOG=info
-# If using seatd for rootless access:
-# export LIBSEAT_BACKEND=seatd
+WGPU_BACKEND=gl ./target/release/rust_embedded_wgpu
+```
+
+- Vulkan (only if you have a real Vulkan driver, e.g., Jetson or Pi with v3dv)
+```bash
+export RUST_LOG=info
+WGPU_BACKEND=vulkan ./target/release/rust_embedded_wgpu
+```
+
+- Unset (try Vulkan first, then GL)
+```bash
+export RUST_LOG=info
 ./target/release/rust_embedded_wgpu
 ```
-- Stop with Ctrl+C (or ESC if built with `esc_evdev`).
 
-Expected message on Jetson and some devices (normal):
-- `wgpu DRM surface create failed: ... Failed to find suitable drm device`
-  - When this appears, the app switches to the CPU KMS fallback automatically. You should still see the animated triangle, rendered offscreen by wgpu and scanned out via dumb buffers with vblank‑synced page flips.
+What to expect in logs (RUST_LOG=info):
+- Which backends are allowed (from WGPU_BACKEND)
+- Whether a Vulkan DRM surface was attempted
+- Which adapter/backend was selected, e.g.:
+  - `using adapter: name='V3D …' backend=Gl type=Integrated` (hardware GL on Pi)
+  - `using adapter: name='llvmpipe …' backend=Vulkan type=Cpu` (software Vulkan / lavapipe)
+
+Notes:
+- If the Vulkan direct-display extension isn’t available, the app uses the CPU KMS fallback automatically (offscreen render → CPU copy → dumb buffer → vblank‑synced page flips). You’ll still see the triangle.
+- Stop with Ctrl+C (or ESC if built with `esc_evdev`).
 
 ## 5. Feature flags
 - `wgpu_drm`: Enables the direct Vulkan→DRM surface path in wgpu.
