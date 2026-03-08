@@ -3,6 +3,7 @@
 // This keeps the pipeline/shader logic in-file (close to upstream), and only switches the runner.
 
 use anyhow::Result;
+use anyhow::Context;
 
 #[derive(Clone, Copy, Debug)]
 pub struct ExampleSize { pub width: u32, pub height: u32 }
@@ -111,12 +112,12 @@ fn main() -> Result<()> {
 fn main() -> Result<()> {
     use winit::{event::*, event_loop::{ControlFlow, EventLoop}, window::WindowBuilder};
 
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoop::new().unwrap();
     let window = WindowBuilder::new().with_title("hello_triangle").build(&event_loop).unwrap();
 
     // Instance/surface/adapter/device
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..Default::default() });
-    let surface = unsafe { instance.create_surface(&window).unwrap() };
+    let surface = instance.create_surface(&window).unwrap();
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,
         compatible_surface: Some(&surface),
@@ -142,7 +143,8 @@ fn main() -> Result<()> {
         height: size.height.max(1),
         present_mode,
         alpha_mode,
-        view_formats: vec![],
+        view_formats: vec![format],
+            desired_maximum_frame_latency: 2,
     };
     surface.configure(&device, &config);
 
@@ -154,25 +156,26 @@ fn main() -> Result<()> {
         ExampleSize { width: config.width, height: config.height },
     )?;
 
-    event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Poll;
+    event_loop.run(|event, elwt| {
+        elwt.set_control_flow(ControlFlow::Poll);
         match event {
             Event::WindowEvent { event, .. } => match event {
-                WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+                WindowEvent::CloseRequested => elwt.exit(),
                 WindowEvent::Resized(sz) => {
                     config.width = sz.width.max(1);
                     config.height = sz.height.max(1);
                     surface.configure(&device, &config);
                 }
-                WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                    config.width = new_inner_size.width.max(1);
-                    config.height = new_inner_size.height.max(1);
+                WindowEvent::ScaleFactorChanged { .. } => {
+                    let sz = window.inner_size();
+                    config.width = sz.width.max(1);
+                    config.height = sz.height.max(1);
                     surface.configure(&device, &config);
                 }
                 _ => {}
             },
-            Event::MainEventsCleared => window.request_redraw(),
-            Event::RedrawRequested(_) => {
+            Event::AboutToWait => window.request_redraw(),
+            Event::WindowEvent { event: WindowEvent::RedrawRequested, .. } => {
                 match surface.get_current_texture() {
                     Ok(frame) => {
                         let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -185,12 +188,13 @@ fn main() -> Result<()> {
                         surface.configure(&device, &config);
                     }
                     Err(wgpu::SurfaceError::OutOfMemory) => {
-                        *control_flow = ControlFlow::Exit;
+                        elwt.exit();
                     }
                     Err(_) => {}
                 }
             }
             _ => {}
         }
-    });
+    }).unwrap();
+    Ok(())
 }
