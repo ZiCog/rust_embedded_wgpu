@@ -1,7 +1,7 @@
 // Re-vendored cube example with cfg-gated runner: winit by default, KMS with --features kms_runner.
 // Minimal, self-contained pipeline+WGSL kept inline (close to upstream). Uses glam for matrices.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::time::Instant;
 use glam::{Mat4, Vec3};
 use wgpu::util::DeviceExt;
@@ -174,3 +174,103 @@ fn main() -> Result<()> {
     frame_loop(ctx, move |device, queue, encoder, view| app.render(device, queue, encoder, view))
 }
 
+
+#[cfg(not(feature = "kms_runner"))]
+fn main() -> Result<()> {
+    use winit::{
+        event::*,
+        event_loop::{ControlFlow, EventLoop},
+        window::WindowBuilder,
+    };
+
+    let event_loop = EventLoop::new().unwrap();
+    let window = WindowBuilder::new().with_title("cube").build(&event_loop).unwrap();
+
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::all(),
+        ..Default::default()
+    });
+    let surface = instance.create_surface(&window).unwrap();
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::HighPerformance,
+        compatible_surface: Some(&surface),
+        force_fallback_adapter: false,
+    })).context("request_adapter")?;
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("cube_device"),
+        required_features: wgpu::Features::empty(),
+        required_limits: wgpu::Limits::downlevel_webgl2_defaults(),
+        ..Default::default()
+    })).context("request_device")?;
+
+    let size = window.inner_size();
+    let caps = surface.get_capabilities(&adapter);
+    let format = caps.formats.iter().copied()
+        .find(|f| matches!(f, wgpu::TextureFormat::Bgra8UnormSrgb | wgpu::TextureFormat::Rgba8UnormSrgb))
+        .unwrap_or(caps.formats[0]);
+    let present_mode = caps.present_modes.iter().copied()
+        .find(|&m| m == wgpu::PresentMode::Fifo)
+        .unwrap_or(caps.present_modes[0]);
+    let alpha_mode = caps.alpha_modes.iter().copied()
+        .find(|&a| a == wgpu::CompositeAlphaMode::Opaque)
+        .unwrap_or(caps.alpha_modes[0]);
+    let mut config = wgpu::SurfaceConfiguration {
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        format,
+        width: size.width.max(1),
+        height: size.height.max(1),
+        present_mode,
+        alpha_mode,
+        view_formats: vec![format],
+        desired_maximum_frame_latency: 2,
+    };
+    surface.configure(&device, &config);
+
+    let mut app = CubeApp::new(
+        &device, &queue, format,
+        ExampleSize { width: config.width, height: config.height },
+    )?;
+
+    event_loop.run(|event, elwt| {
+        elwt.set_control_flow(ControlFlow::Poll);
+        match event {
+            Event::WindowEvent { event, .. } => match event {
+                WindowEvent::CloseRequested => elwt.exit(),
+                WindowEvent::Resized(sz) => {
+                    config.width = sz.width.max(1);
+                    config.height = sz.height.max(1);
+                    surface.configure(&device, &config);
+                    app.ensure_depth(&device, ExampleSize { width: config.width, height: config.height });
+                }
+                WindowEvent::ScaleFactorChanged { .. } => {
+                    let sz = window.inner_size();
+                    config.width = sz.width.max(1);
+                    config.height = sz.height.max(1);
+                    surface.configure(&device, &config);
+                    app.ensure_depth(&device, ExampleSize { width: config.width, height: config.height });
+                }
+                WindowEvent::RedrawRequested => {
+                    match surface.get_current_texture() {
+                        Ok(frame) => {
+                            let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+                            let mut encoder = device.create_command_encoder(
+                                &wgpu::CommandEncoderDescriptor { label: Some("cube_enc") });
+                            let _ = app.render(&device, &queue, &mut encoder, &view);
+                            queue.submit([encoder.finish()]);
+                            frame.present();
+                        }
+                        Err(wgpu::SurfaceError::Lost) | Err(wgpu::SurfaceError::Outdated) => {
+                            surface.configure(&device, &config);
+                        }
+                        Err(wgpu::SurfaceError::OutOfMemory) => elwt.exit(),
+                        Err(_) => {}
+                    }
+                }
+                _ => {}
+            },
+            Event::AboutToWait => window.request_redraw(),
+            _ => {}
+        }
+    }).unwrap();
+    Ok(())
+}
