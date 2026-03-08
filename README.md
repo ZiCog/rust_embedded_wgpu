@@ -78,6 +78,25 @@ Notes:
 - `esc_evdev`: Optional ESC listener via evdev to exit cleanly (adds `evdev`; needs `input` group).
 
 ## 6. Notes & troubleshooting
+### Troubleshooting: lavapipe vs v3d
+On Raspberry Pi you typically want the hardware GL driver (v3d) instead of software Vulkan (lavapipe).
+
+- Symptom (software path): logs show `using adapter: name='llvmpipe' backend=Vulkan type=Cpu` and you may see `WARNING: lavapipe is not a conformant vulkan implementation`.
+- Preferred (hardware GL): logs show something like `using adapter: name='V3D …' backend=Gl type=Integrated`.
+
+Quick fixes
+- Force GL on Pi (recommended):
+  \- `RUST_LOG=info WGPU_BACKEND=gl ./target/release/rust_embedded_wgpu`
+- If you want Vulkan on Pi, install the driver and tools and confirm it’s not lavapipe:
+```bash
+sudo apt-get update
+sudo apt-get install -y mesa-vulkan-drivers vulkan-tools
+vulkaninfo | head -n 40   # look for V3D; avoid llvmpipe/lavapipe
+```
+Notes
+- Even with a working Vulkan driver, the Vulkan direct-display extension usually isn’t available on Pi; the app will still use the CPU KMS fallback and show the triangle.
+- Use `RUST_LOG=info` to see which backend/adapter wgpu actually selected.
+
 - Always run from a VT; window systems usually hold DRM master and block direct modesetting.
 - If running rootless, ensure seatd is active and you’re in `video` and `render` (and `input` if using `esc_evdev`).
 - Sanity tools: `modetest`, `kmscube`, `vulkaninfo`.
