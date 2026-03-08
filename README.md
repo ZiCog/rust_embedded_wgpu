@@ -131,3 +131,19 @@ Notes
 - If you see lavapipe/Vulkan software warnings on Pi, switch to `WGPU_BACKEND=gl`.
 - The KMS path renders offscreen, CPU-copies to a dumb buffer, and page-flips synchronized to vblank.
 - SurfaceConfiguration in these examples sets `desired_maximum_frame_latency = 2` for wgpu 0.25.
+
+## Convenience scripts and input keys
+
+Scripts (macOS/Linux)
+- Windowed: `./scripts/run_windowed.sh <example>`
+  - Examples: `hello_triangle`, `cube`, `cube_vendor`
+- Headless KMS (GL, e.g., Raspberry Pi): `./scripts/run_kms_gl.sh <example>`
+- Headless KMS (Vulkan, e.g., Jetson): `./scripts/run_kms_vk.sh <example>`
+
+Examples
+- `./scripts/run_windowed.sh cube_vendor`
+- `./scripts/run_kms_gl.sh hello_triangle`
+
+Input keys (windowed builds)
+- Escape: quit (all windowed examples)
+- Space: pause/resume rotation (minimal `cube` example only)
