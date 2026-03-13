@@ -1,6 +1,6 @@
 
 use anyhow::{anyhow, Context, Result};
-use std::{fs::File, io::ErrorKind, os::fd::{AsFd, AsRawFd, BorrowedFd}, time::Duration};
+use std::{fs::File, io::ErrorKind, os::fd::{AsFd, BorrowedFd}, time::Duration};
 use drm::buffer::Buffer as _; // for .pitch()
 use drm::control::{self as ctrl, Device as ControlDevice, Event, ModeTypeFlags, PageFlipFlags};
 
@@ -137,7 +137,7 @@ pub fn init() -> Result<KmsContext> {
     let instance: &'static wgpu::Instance = Box::leak(Box::new(wgpu::Instance::new(&wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN | wgpu::Backends::GL, ..Default::default() })));
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, compatible_surface: None, force_fallback_adapter: false }))
         .context("No suitable adapter for offscreen KMS scanout")?;
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor { label: Some("offscreen_device"), required_features: wgpu::Features::empty(), required_limits: wgpu::Limits::downlevel_defaults(), ..Default::default() }))?;
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor { label: Some("offscreen_device"), required_features: wgpu::Features::empty(), required_limits: adapter.limits(), ..Default::default() }))?;
     let presenter = KmsCpuPresenter::new(card, pick, &device).context("init KMS CPU presenter")?;
     Ok(KmsContext { adapter, device, queue, presenter })
 }
